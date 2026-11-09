@@ -480,7 +480,10 @@ impl Gui {
         &self,
         position: Point2D<f32, DeviceIndependentPixel>,
     ) -> bool {
-        position.y < self.toolbar_height.get() || position.x < self.sidebar_width.get()
+        // Floating settings/menu areas extend beyond the fixed chrome bands.
+        // Route their input to egui rather than the webpage underneath.
+        self.context.egui_ctx.is_pointer_over_area()
+            || position.y < self.toolbar_height.get() || position.x < self.sidebar_width.get()
     }
 
     /// Create a frameless button with square sizing, as used in the toolbar.
@@ -719,7 +722,7 @@ impl Gui {
                 let surface=if dark {egui::Color32::from_rgba_unmultiplied(22,25,28,210)} else {egui::Color32::from_rgba_unmultiplied(244,247,245,220)};
                 let rail=if dark {egui::Color32::from_rgba_unmultiplied(18,21,24,200)} else {egui::Color32::from_rgba_unmultiplied(235,240,237,214)};
                 let accent=egui::Color32::from_rgb(171,208,177);
-                ctx.style_mut(|style| {
+                ctx.all_styles_mut(|style| {
                     style.spacing.item_spacing=egui::vec2(4.,8.);
                     style.visuals.window_fill=if dark {egui::Color32::from_rgba_unmultiplied(28,32,36,232)} else {egui::Color32::from_rgba_unmultiplied(245,248,246,238)};
                     style.visuals.window_stroke=egui::Stroke::new(1.,egui::Color32::from_white_alpha(if dark {28} else {60}));
@@ -1046,7 +1049,7 @@ impl Gui {
         // Translucent chrome must blend against a fresh transparent target,
         // never the previous frame. The background callback repaints Servo's
         // own opaque page region after this clear.
-        egui_glow::clear(self.context.painter.gl(), window.inner_size().into(), [0., 0., 0., 0.]);
+        self.context.painter.clear(window.inner_size().into(), [0., 0., 0., 0.]);
         self.context.paint(window);
         self.rendering_context.parent_context().present();
     }

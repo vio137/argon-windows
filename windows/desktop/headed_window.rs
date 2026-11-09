@@ -286,6 +286,9 @@ impl HeadedWindow {
             // consulted yet - the chrome menu always wins for now.
             if let Some(position) = self.last_mouse_position.get() {
                 self.gui.borrow_mut().open_context_menu(position);
+                // egui repaint requests alone do not enqueue a winit frame
+                // when the click was intercepted before on_window_event.
+                self.winit_window.request_redraw();
             }
             return;
         }
