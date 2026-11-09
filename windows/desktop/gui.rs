@@ -476,6 +476,13 @@ impl Gui {
         });
     }
 
+    pub(crate) fn focus_location(&mut self) {
+        self.context.egui_ctx.memory_mut(|memory| {
+            memory.request_focus(egui::Id::new("location_input"));
+        });
+        self.context.egui_ctx.request_repaint();
+    }
+
     pub(crate) fn toggle_saved_page(&mut self, webview: &WebView) {
         if let Some(url)=webview.url() {
             let title=webview.page_title().filter(|t|!t.is_empty()).unwrap_or_else(||url.to_string());
