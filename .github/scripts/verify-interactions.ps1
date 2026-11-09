@@ -48,6 +48,14 @@ function Find-Named($name) {
  throw "Named accessibility control missing: $name"
 }
 function Click-Element($e) {
+ $select = $null
+ if ($e.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$select)) {
+  $select.Select(); Start-Sleep -Milliseconds 900; return
+ }
+ $toggle = $null
+ if ($e.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$toggle)) {
+  $toggle.Toggle(); Start-Sleep -Milliseconds 900; return
+ }
  $invoke = $null
  if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invoke)) {
   $invoke.Invoke()
@@ -80,6 +88,11 @@ try {
  Write-Host 'JS gate: actual document.title mutation observed'
  Click-Element (Find-Named 'Settings')
  Click-Element (Find-Named 'Light')
+ if (-not (Test-Path $config)) {
+  Capture 'argon-settings-selection.png'
+  Get-ChildItem $env:APPDATA,$env:LOCALAPPDATA -Filter settings.json -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 FullName | Write-Host
+  throw 'Settings file missing after actual Light selection'
+ }
  if ((Get-Content $config -Raw|ConvertFrom-Json).dark_theme -ne $false) { throw 'Light selection did not persist' }
  Capture 'argon-settings-light.png'
  Click-Element (Find-Named 'Dark (Zen)')
