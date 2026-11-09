@@ -8,6 +8,10 @@ using System;
 using System.Runtime.InteropServices;
 public class ArgonInteraction {
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,IntPtr id);
+ [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+ [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a,uint b,bool attach);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e);
  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int ht,bool r);
@@ -111,10 +115,25 @@ try {
   }
  }
  if (-not $homepageEdit) { throw 'Homepage edit control not identified by current value' }
- # SetValue uses the actual accessible edit, avoiding a foreground race
- # where SendKeys can type into the runner console instead of Argon.
+ # TextEdit exposes ValuePattern for reading but does not apply SetValue.
+ # Attach input threads just for activation, then verify the real foreground
+ # before sending physical keyboard events to the focused homepage edit.
+ $target=$script:proc.MainWindowHandle
+ $foreground=[ArgonInteraction]::GetForegroundWindow()
+ $current=[ArgonInteraction]::GetCurrentThreadId()
+ $other=[ArgonInteraction]::GetWindowThreadProcessId($foreground,[IntPtr]::Zero)
+ try {
+  [ArgonInteraction]::AttachThreadInput($current,$other,$true) | Out-Null
+  [ArgonInteraction]::SetForegroundWindow($target) | Out-Null
+ } finally { [ArgonInteraction]::AttachThreadInput($current,$other,$false) | Out-Null }
+ $homepageEdit.SetFocus()
+ Start-Sleep -Milliseconds 400
+ if ([ArgonInteraction]::GetForegroundWindow() -ne $target) { throw 'Cannot type safely: Argon is not the foreground window' }
+ Capture 'argon-settings-before-edit.png'
+ [System.Windows.Forms.SendKeys]::SendWait('^a')
+ [System.Windows.Forms.SendKeys]::SendWait('about:blank')
+ [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
  $valuePattern=$homepageEdit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
- $valuePattern.SetValue('about:blank')
  Start-Sleep 1
  if ((Get-Content $config -Raw|ConvertFrom-Json).homepage -ne 'about:blank') {
   Capture 'argon-settings-homepage-failure.png'
