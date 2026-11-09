@@ -48,6 +48,14 @@ function Find-Named($name) {
  throw "Named accessibility control missing: $name"
 }
 function Click-Element($e) {
+ $invoke = $null
+ if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invoke)) {
+  $invoke.Invoke()
+  Start-Sleep -Milliseconds 900
+  return
+ }
+ [ArgonInteraction]::SetForegroundWindow($script:proc.MainWindowHandle) | Out-Null
+ Start-Sleep -Milliseconds 500
  $r=$e.Current.BoundingRectangle
  if ($r.IsEmpty -or $r.Width -lt 1 -or $r.Height -lt 1) { throw 'Control has no usable visible bounds' }
  [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2))|Out-Null
@@ -56,6 +64,8 @@ function Click-Element($e) {
  Start-Sleep -Milliseconds 700
 }
 function Capture($name) {
+ [ArgonInteraction]::SetForegroundWindow($script:proc.MainWindowHandle) | Out-Null
+ Start-Sleep -Milliseconds 500
  $r=New-Object ArgonInteraction+RECT
  $hr=[ArgonInteraction]::DwmGetWindowAttribute($script:proc.MainWindowHandle,9,[ref]$r,16)
  if ($hr -ne 0) { throw 'Window bounds unavailable' }
