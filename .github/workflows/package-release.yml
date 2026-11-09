@@ -2,8 +2,8 @@ name: package-release
 
 # Packaging-only path: takes the compiled argon-windows-x64 artifact from a
 # finished windows-build run, adds Servo's engine resources, verifies the
-# result by launching it headless from a clean directory, and only then
-# publishes the verified zip to the rolling nightly pre-release.
+# result by launching it headless from a clean directory, then preserves
+# immutable candidate assets. Publication requires a separate explicit action.
 # No recompilation - the exact CI-built binary is reused.
 
 on:
@@ -265,13 +265,3 @@ jobs:
             argon-setup-x64.exe
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish package-checked candidate (not nightly)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly-candidate
-          name: Argon ${{ inputs.release_tag }} (Windows x64)
-          prerelease: true
-          files: |
-            argon-windows-x64.zip
-            argon-setup-x64.exe
