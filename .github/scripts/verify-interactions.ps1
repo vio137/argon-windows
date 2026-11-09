@@ -208,6 +208,35 @@ try {
  Start-Sleep 1
  Capture 'argon-settings-saved-after-secondary.png'
  if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Sidebar right-click removal did not persist' }
+ # Exercise the common shortcuts from page focus before entering the address field.
+ [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width*0.75),[int]($r.Y+$r.Height/2))|Out-Null
+ Start-Sleep -Milliseconds 300
+ [ArgonInteraction]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [ArgonInteraction]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ [System.Windows.Forms.SendKeys]::SendWait('^t')
+ Start-Sleep 2
+ $script:proc.Refresh()
+ if ($script:proc.HasExited -or $script:proc.MainWindowTitle -like 'Argon JS OK*') { throw 'Ctrl+T did not activate a new tab' }
+ Capture 'argon-settings-keyboard-new-tab.png'
+ [System.Windows.Forms.SendKeys]::SendWait('^w')
+ Start-Sleep 2
+ $script:proc.Refresh()
+ if ($script:proc.HasExited -or $script:proc.MainWindowTitle -notlike 'Argon JS OK*') { throw 'Ctrl+W did not return to the original tab' }
+ [System.Windows.Forms.SendKeys]::SendWait('^l')
+ Start-Sleep 1
+ $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+ if ($focused.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) {
+  Capture 'argon-settings-keyboard-focus-failure.png'
+  throw "Page-focused Ctrl+L did not focus address edit: $($focused.Current.Name)"
+ }
+ [System.Windows.Forms.SendKeys]::SendWait('^d')
+ Start-Sleep 1
+ if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 1) { throw 'Chrome-focused Ctrl+D did not save exactly once' }
+ [System.Windows.Forms.SendKeys]::SendWait('^d')
+ Start-Sleep 1
+ if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Chrome-focused Ctrl+D did not remove exactly once' }
+ Capture 'argon-settings-keyboard-address.png'
+ Write-Host 'Keyboard gates passed: page Ctrl+T/new tab, Ctrl+W/return, Ctrl+L/address focus, chrome Ctrl+D toggle'
  Write-Host 'Saved-page gates passed: toolbar save, restart persistence, toolbar removal, page Ctrl+D, sidebar reopen and right-click removal'
  Write-Host 'Interaction gates passed: JS execution, theme and compact settings persistence across restart, homepage editing and Home navigation, right-click menu and Copy address' 
 } finally {
