@@ -1,0 +1,35 @@
+name: publish-preview
+# User-requested early prerelease, separate from verified nightly promotion.
+on:
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download exact installer-checked candidate assets
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-candidate-assets
+          path: candidate
+          run-id: 42620577727
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish explicitly unverified-feature preview
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: preview-13a17bb
+          name: Argon Windows preview (13a17bb)
+          prerelease: true
+          body: |
+            Early preview published at the user's request before remaining feature tests finish.
+
+            Passed: native Windows compilation, clean-directory launch and page rendering, installer silent install, installed launch, and uninstall.
+
+            Not yet verified: settings interactions/persistence, right-click menu actions, JavaScript feature-specific assertions, and direct-video playback. YouTube playback and audio output are not verified. Servo does not currently implement the MSE support needed by YouTube (servo/servo#44403).
+
+            Uses the exact zip and installer preserved by successful package run 42620577727, from source build 42613885796 (13a17bb). This preview does not replace the previously checked nightly release. Feature testing continues separately.
+          files: |
+            candidate/argon-windows-x64.zip
+            candidate/argon-setup-x64.exe
