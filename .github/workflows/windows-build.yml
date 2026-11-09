@@ -79,6 +79,17 @@ jobs:
           New-Item -ItemType Directory -Force target/package | Out-Null
           Copy-Item target/release/argon.exe target/package/
           Get-ChildItem target/release/*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination target/package/
+          # ANGLE DLLs: mozangle builds libEGL/libGLESv2 deep in the cargo build
+          # tree and plain cargo never copies them next to the exe (servo's mach
+          # copy_windows_dlls_to_build_directory step does). Without these the
+          # packaged browser panics at launch: "egl function was not loaded".
+          # Hard-fail here so the main pipeline can never produce a deficient zip.
+          foreach ($dll in 'libEGL.dll', 'libGLESv2.dll') {
+            $found = Get-ChildItem target -Recurse -Filter $dll -File | Select-Object -First 1
+            if (-not $found) { Write-Error "$dll not found in the cargo build tree"; exit 1 }
+            Copy-Item $found.FullName target/package/
+            Write-Host "packaged $($found.FullName)"
+          }
           $checkout = Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts" -Directory -Filter 'servo-*' | ForEach-Object { Get-ChildItem $_.FullName -Directory } | Where-Object { Test-Path (Join-Path $_.FullName 'resources') } | Select-Object -First 1
           if (-not $checkout) { Write-Error 'Servo resources checkout not found'; exit 1 }
           Copy-Item -Recurse (Join-Path $checkout.FullName 'resources') (Join-Path 'target/package' 'resources')
