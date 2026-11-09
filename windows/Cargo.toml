@@ -63,6 +63,14 @@ webgpu = ["servo/webgpu"]
 webxr = ["servo/webxr"]
 
 [dependencies]
+# Exact pre-release pins, matching Servo v0.7.0's Cargo.lock: cargo's resolver
+# otherwise upgrades these to incompatible final releases (e.g. pkcs1 0.8.0
+# breaks rsa 0.10.0-rc.18). These are transitive deps of servo; the direct
+# entries only force version unification.
+ed448-goldilocks = "=0.14.0-pre.15"
+pkcs1 = "=0.8.0-rc.4"
+rsa = "=0.10.0-rc.18"
+x448 = "=0.14.0-pre.12"
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.26", features = ["derive"] }
 cfg-if = "1.0.4"
