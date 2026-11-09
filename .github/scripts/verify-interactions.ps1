@@ -151,8 +151,11 @@ try {
  [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2))|Out-Null
  [ArgonInteraction]::mouse_event(8,0,0,0,[UIntPtr]::Zero)
  [ArgonInteraction]::mouse_event(16,0,0,0,[UIntPtr]::Zero)
+ # Cursor motion supplies a redraw for the old candidate's menu-open path,
+ # which only sets egui's internal repaint bit after intercepting the click.
+ [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2+3),[int]($r.Y+$r.Height/2+3))|Out-Null
  Start-Sleep 1
- Capture 'argon-context-menu.png'
+ Capture 'argon-context-menu.png' 
  Click-Element (Find-Named 'Copy address')
  $clip=Get-Clipboard
  if ($clip -ne $url) { throw "Copy address did not copy the active URL: $clip" }
@@ -161,11 +164,13 @@ try {
  [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2))|Out-Null
  [ArgonInteraction]::mouse_event(8,0,0,0,[UIntPtr]::Zero)
  [ArgonInteraction]::mouse_event(16,0,0,0,[UIntPtr]::Zero)
+ [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2+3),[int]($r.Y+$r.Height/2+3))|Out-Null
  Start-Sleep 1
  Click-Element (Find-Named 'Home')
  Start-Sleep 3
  [ArgonInteraction]::mouse_event(8,0,0,0,[UIntPtr]::Zero)
  [ArgonInteraction]::mouse_event(16,0,0,0,[UIntPtr]::Zero)
+ [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2+3),[int]($r.Y+$r.Height/2+3))|Out-Null
  Start-Sleep 1
  Click-Element (Find-Named 'Copy address')
  if ((Get-Clipboard) -ne 'about:blank') { throw 'Home did not navigate to the saved homepage' }
