@@ -39,3 +39,7 @@ Source and API inspection are not runtime proof. The branch needs compilation, r
 ## Glass composition
 
 Windows acrylic is requested through window-vibrancy 0.8.1 (MIT or Apache-2.0), not simulated by alpha alone. Transparent native windows plus translucent chrome/panel fills expose the compositor backdrop while website rendering remains opaque. Actual acrylic availability, OpenGL alpha composition, settings overlays and legibility must be inspected on Windows. If the renderer does not expose the backdrop correctly, report that limitation and fix it before describing the result as working frosted glass. The user's explicit glass direction overrides unslop's default avoidance of glass decoration.
+
+## In-app panel refinement
+
+The first inspected candidate passed interaction checks but showed sharp page lettering through Settings. Native OS acrylic does not blur the app's own page layer. A separate 25-tap framebuffer blur now runs before floating settings/menu surfaces, sampling only Argon's current frame. It never reads the desktop or another app. Shaders/resources are reused; GL resources are freed with the context. The shader has a standalone software-GL stripe/alpha/rounded-mask test. Native Windows composition/order/performance still requires exact-artifact visual verification. Helper text contrast and menu row/shadow treatment are tightened in the same pass.

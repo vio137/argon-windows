@@ -18,7 +18,8 @@ use std::fs;
 ))]
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use super::backdrop::Backdrop;
 
 use accesskit::Affine;
 use dpi::PhysicalSize;
@@ -139,6 +140,7 @@ impl ArgonSettings {
 pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
     context: EguiGlow,
+    backdrop: Arc<Mutex<Backdrop>>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
 
     /// The current width of the Zen-style tab sidebar (zero when hidden).
@@ -355,6 +357,7 @@ impl Drop for Gui {
         self.rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
+        if let Ok(mut backdrop) = self.backdrop.lock() { backdrop.destroy(self.context.painter.gl()); }
         self.context.destroy();
     }
 }
@@ -416,6 +419,7 @@ impl Gui {
         Self {
             rendering_context,
             context,
+            backdrop: Arc::new(Mutex::new(Backdrop::default())),
             toolbar_height: Default::default(),
             sidebar_width: Default::default(),
             sidebar_compact: settings.sidebar_compact,
@@ -594,6 +598,7 @@ impl Gui {
         let Self {
             rendering_context,
             context,
+            backdrop,
             toolbar_height,
             sidebar_width,
             sidebar_compact,
@@ -727,6 +732,9 @@ impl Gui {
                     style.visuals.window_fill=if dark {egui::Color32::from_rgba_unmultiplied(28,32,36,232)} else {egui::Color32::from_rgba_unmultiplied(245,248,246,238)};
                     style.visuals.window_stroke=egui::Stroke::new(1.,egui::Color32::from_white_alpha(if dark {28} else {60}));
                     style.visuals.window_corner_radius=16.into();
+                    style.visuals.weak_text_color=Some(if dark {egui::Color32::from_rgb(187,195,199)} else {egui::Color32::from_rgb(76,86,92)});
+                    style.visuals.window_shadow=egui::epaint::Shadow {offset:[0,4],blur:12,spread:0,color:egui::Color32::from_black_alpha(42)};
+                    style.visuals.popup_shadow=egui::epaint::Shadow {offset:[0,3],blur:10,spread:0,color:egui::Color32::from_black_alpha(38)};
                     style.visuals.widgets.inactive.corner_radius=8.into();
                     style.visuals.widgets.hovered.corner_radius=8.into();
                     style.spacing.button_padding=egui::vec2(12.,8.);
@@ -838,6 +846,7 @@ impl Gui {
 
             // A deliberate settings surface, not a loose stack of widgets.
             let mut open=*settings_open;
+            if open { Backdrop::add(backdrop,ctx.ctx(),egui::Id::new("Settings"),egui::Order::Middle); }
             egui::Window::new("Settings").open(&mut open).collapsible(false).resizable(false)
                 .default_width(480.).show(ctx,|ui| {
                     ui.add_space(8.);
@@ -883,6 +892,7 @@ impl Gui {
             // (intercepted in headed_window), floating above the webview.
             if let Some(pos) = *context_menu_pos {
                 let mut keep_open = true;
+                Backdrop::add(backdrop,ctx.ctx(),egui::Id::new("webview_context_menu"),egui::Order::Foreground);
                 let area = egui::Area::new(egui::Id::new("webview_context_menu"))
                     .order(egui::Order::Foreground)
                     .fixed_pos(pos)
@@ -890,7 +900,7 @@ impl Gui {
                         egui::Frame::popup(ui.style()).show(ui, |ui| {
                             ui.set_min_width(180.0);
                             if ui
-                                .add_enabled(*can_go_back, egui::Button::new("Back"))
+                                .add_enabled(*can_go_back, egui::Button::new("Back").frame(false).min_size(egui::vec2(170.,30.)))
                                 .clicked()
                             {
                                 *location_dirty = false;
@@ -898,7 +908,7 @@ impl Gui {
                                 keep_open = false;
                             }
                             if ui
-                                .add_enabled(*can_go_forward, egui::Button::new("Forward"))
+                                .add_enabled(*can_go_forward, egui::Button::new("Forward").frame(false).min_size(egui::vec2(170.,30.)))
                                 .clicked()
                             {
                                 *location_dirty = false;
@@ -907,13 +917,13 @@ impl Gui {
                                 );
                                 keep_open = false;
                             }
-                            if ui.button("Reload").clicked() {
+                            if ui.add(egui::Button::new("Reload").frame(false).min_size(egui::vec2(170.,30.))).clicked() {
                                 *location_dirty = false;
                                 window.queue_user_interface_command(UserInterfaceCommand::Reload);
                                 keep_open = false;
                             }
                             ui.separator();
-                            if ui.button("Copy address").clicked() {
+                            if ui.add(egui::Button::new("Copy address").frame(false).min_size(egui::vec2(170.,30.))).clicked() {
                                 if let Some(active) = window.active_webview() &&
                                     let Some(url) = active.url()
                                 {
@@ -921,21 +931,21 @@ impl Gui {
                                 }
                                 keep_open = false;
                             }
-                            if ui.button("New tab").clicked() {
+                            if ui.add(egui::Button::new("New tab").frame(false).min_size(egui::vec2(170.,30.))).clicked() {
                                 window.queue_user_interface_command(
                                     UserInterfaceCommand::NewWebView,
                                 );
                                 keep_open = false;
                             }
                             ui.separator();
-                            if ui.button("Home").clicked() {
+                            if ui.add(egui::Button::new("Home").frame(false).min_size(egui::vec2(170.,30.))).clicked() {
                                 *location_dirty = false;
                                 window.queue_user_interface_command(UserInterfaceCommand::Go(
                                     settings.homepage.clone(),
                                 ));
                                 keep_open = false;
                             }
-                            if ui.button("Settings").clicked() {
+                            if ui.add(egui::Button::new("Settings").frame(false).min_size(egui::vec2(170.,30.))).clicked() {
                                 *settings_open = true;
                                 keep_open = false;
                             }
