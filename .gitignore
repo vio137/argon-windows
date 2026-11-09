@@ -1,0 +1,19 @@
+.gradle/
+build/
+**/build/
+local.properties
+*.keystore
+keystore/
+.vault/
+*.jks
+.idea/
+*.iml
+.cxx/
+.externalNativeBuild/
+captures/
+.kotlin/
+app/src/main/jniLibs/
+*.so
+
+# Windows (Rust/Servo)
+windows/target/

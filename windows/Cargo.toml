@@ -1,0 +1,113 @@
+# Argon - a desktop browser built on the Servo engine.
+# Engine integration is adapted from Servo's servoshell port (MPL-2.0),
+# pinned to servo v0.7.0. See README.md and NOTICES.md for attribution.
+[package]
+name = "argon"
+version = "0.1.0"
+authors = ["Argon contributors"]
+license = "MPL-2.0"
+edition = "2024"
+rust-version = "1.88.0"
+publish = false
+description = "Argon - a desktop browser built on the Servo engine"
+build = "build.rs"
+
+[lib]
+name = "argon"
+path = "lib.rs"
+bench = false
+
+[[bin]]
+name = "argon"
+path = "main.rs"
+bench = false
+
+[build-dependencies]
+# macOS only, but build scripts can't detect the target OS at build time,
+# so this stays unconditional (see https://github.com/rust-lang/cargo/issues/4932)
+cc = "1.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.winresource]
+FileDescription = "Argon"
+LegalCopyright = "© The Servo Project Developers and Argon contributors"
+OriginalFilename = "argon.exe"
+ProductName = "Argon"
+
+[features]
+default = ["default_without_allocator", "servo-allocator/use-jemalloc"]
+default_without_allocator = ["bundled", "default_web_features", "max_log_level", "multiprocess", "js_jit"]
+default_web_features = ["servo/default_web_features", "gamepad", "webgpu", "webgl", "webxr"]
+bundled = ["servo/bundled"]
+
+baked-in-resources = ["servo/baked-in-resources"]
+bundled_freetype = ["servo/bundled_freetype"]
+debugmozjs = ["servo/debugmozjs"]
+gamepad = ["servo/gamepad"]
+jitspew = ["servo/jitspew"]
+js_backtrace = ["servo/js_backtrace"]
+js_jit = ["servo/js_jit"]
+max_log_level = ["log/release_max_level_info"]
+media-gstreamer = ["servo/media-gstreamer"]
+multiprocess = ["servo/multiprocess"]
+native-bluetooth = ["servo/native-bluetooth"]
+profilemozjs = ["servo/profilemozjs"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "servo/tracing"]
+tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
+vello = ["servo/vello"]
+webgl_backtrace = ["servo/webgl_backtrace"]
+webgl = ["servo/webgl"]
+webgpu = ["servo/webgpu"]
+webxr = ["servo/webxr"]
+
+[dependencies]
+accesskit = { version = "0.24.0", features = ["serde"] }
+bpaf = { version = "0.9.26", features = ["derive"] }
+cfg-if = "1.0.4"
+crossbeam-channel = "0.5"
+dpi = "0.1"
+euclid = "0.22"
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "rayon", "webp"] }
+keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
+libc = "0.2"
+log = "0.4.32"
+mime_guess = "2.0.5"
+raw-window-handle = "0.6"
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
+servo = { git = "https://github.com/servo/servo.git", tag = "v0.7.0", default-features = false, features = ["background_hang_monitor", "bluetooth", "testbinding"] }
+tokio = "1"
+tracing = { version = "0.1.44", optional = true }
+tracing-perfetto = { version = "0.1.5", optional = true }
+tracing-subscriber = { version = "0.3.23", optional = true, features = ["env-filter"] }
+url = "2.5"
+webdriver_server = { package = "servo-webdriver-server", git = "https://github.com/servo/servo.git", tag = "v0.7.0" }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+backtrace = "0.3"
+
+[target.'cfg(not(any(target_os = "android", target_env = "ohos")))'.dependencies]
+dirs = "7.0"
+egui = "0.34.3"
+egui-file-dialog = "0.13.0"
+egui-winit = { version = "0.34.3", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
+egui_glow = { version = "0.34.3", features = ["winit"] }
+gilrs = "0.11.1"
+glow = "0.17.0"
+headers = "0.4"
+serde_json = "1.0"
+servo-allocator = { git = "https://github.com/servo/servo.git", tag = "v0.7.0" }
+surfman = { version = "0.14.0", features = ["sm-x11"] }
+winit = "0.30.13"
+
+[target.'cfg(any(all(target_os = "linux", not(target_env = "ohos")), target_os = "macos"))'.dependencies]
+signal-hook-registry = "1.4.8"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+servo = { git = "https://github.com/servo/servo.git", tag = "v0.7.0", features = ["no-wgl"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_System_Console"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSColorSpace", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3.1", default-features = false, features = ["std"] }
