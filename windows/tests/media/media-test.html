@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Argon media test pending</title>
+<style>
+  body { margin: 0; background: #181a1f; color: #e8eaed; font-family: sans-serif; }
+  #status { padding: 12px 16px; font-size: 20px; }
+  video { width: 640px; margin: 0 16px; background: #000; }
+</style>
+</head>
+<body>
+<div id="status">media test running...</div>
+<video id="v" autoplay muted loop src="sample.mp4"></video>
+<script>
+  var v = document.getElementById('v');
+  var s = document.getElementById('status');
+  function ok() {
+    s.textContent = 'VIDEO PLAYING';
+    document.title = 'Argon VIDEO OK';
+  }
+  function bad(kind) {
+    s.textContent = 'VIDEO FAILED: ' + kind;
+    document.title = 'Argon VIDEO ERR ' + kind;
+  }
+  v.addEventListener('playing', ok);
+  v.addEventListener('error', function () {
+    bad(v.error ? ('code' + v.error.code) : 'unknown');
+  });
+  // If nothing decoded within 20s of page load, call it a failure so the CI
+  // assertion does not wait forever on a stalled pipeline.
+  setTimeout(function () {
+    if (document.title.indexOf('Argon VIDEO OK') !== 0 &&
+        document.title.indexOf('Argon VIDEO ERR') !== 0) {
+      bad('timeout readyState' + v.readyState);
+    }
+  }, 20000);
+</script>
+</body>
+</html>

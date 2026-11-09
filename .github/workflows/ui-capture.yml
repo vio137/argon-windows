@@ -20,6 +20,9 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
+      # Needed for windows/tests/media (the local mp4 playback assertion page).
+      - uses: actions/checkout@v4
+
       - name: Download published nightly distribution zip
         shell: pwsh
         run: |
@@ -119,6 +122,137 @@ jobs:
           Write-Host "sidebar pixel: $($px.R),$($px.G),$($px.B)"
           if ($px.R -gt 80 -or $px.G -gt 80 -or $px.B -gt 80) { Write-Error "sidebar is light ($($px.R),$($px.G),$($px.B)) - Zen dark chrome not applied"; exit 1 }
 
+      # Media gate: plays a real local h264 mp4 (windows/tests/media) HEADED and
+      # asserts playback actually starts - 'playing' event sets the window title
+      # via JS, so a pass means GStreamer decoded and presented frames, not just
+      # that the page loaded. Skipped (not failed) when the package predates the
+      # media-gstreamer build (no gstlibav.dll next to argon.exe).
+      - name: Media playback assertion (local mp4, headed)
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public class Win32M {
+            [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
+            [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+            public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+          }
+          '@
+          $exe = Get-ChildItem -Path dist -Recurse -Filter argon.exe | Select-Object -First 1
+          if (-not (Test-Path (Join-Path $exe.DirectoryName 'gstlibav.dll'))) {
+            Write-Host 'NOTICE: package has no GStreamer (pre-media build) - skipping media assertion'
+            exit 0
+          }
+          $mediaDir = Join-Path $env:GITHUB_WORKSPACE 'windows\tests\media'
+          $url = 'file:///' + ($mediaDir -replace '\\','/') + '/media-test.html'
+          Write-Host "launching $($exe.FullName) $url"
+          Set-Location $exe.DirectoryName
+          $proc = Start-Process -FilePath $exe.FullName -ArgumentList $url -PassThru
+          $verdict = ''
+          for ($i = 0; $i -lt 75; $i++) {
+            Start-Sleep -Seconds 1
+            $proc.Refresh()
+            if ($proc.HasExited) { Write-Error "argon.exe exited ($($proc.ExitCode)) during media test"; exit 1 }
+            $t = $proc.MainWindowTitle
+            if ($t -like 'Argon VIDEO OK*') { $verdict = 'OK'; break }
+            if ($t -like 'Argon VIDEO ERR*') { $verdict = $t; break }
+          }
+          Write-Host "media window title: '$($proc.MainWindowTitle)'"
+          if ($verdict -ne 'OK') {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            if ($verdict) { Write-Error "video playback failed: $verdict" } else { Write-Error 'video playback verdict timed out (75s) with no OK/ERR title' }
+            exit 1
+          }
+          Start-Sleep -Seconds 2
+          [Win32M]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+          Start-Sleep -Seconds 1
+          $rect = New-Object Win32M+RECT
+          [Win32M]::DwmGetWindowAttribute($proc.MainWindowHandle, 9, [ref]$rect, [Runtime.InteropServices.Marshal]::SizeOf([type][Win32M+RECT])) | Out-Null
+          $sw = [Win32M]::GetSystemMetrics(0); $sh = [Win32M]::GetSystemMetrics(1)
+          $left = [Math]::Max(0, $rect.Left); $top = [Math]::Max(0, $rect.Top)
+          $right = [Math]::Min($sw, $rect.Right); $bottom = [Math]::Min($sh, $rect.Bottom)
+          $w = $right - $left; $h = $bottom - $top
+          if ($w -lt 100 -or $h -lt 100) { Write-Error "media window too small ($w x $h)"; exit 1 }
+          $bmp = New-Object System.Drawing.Bitmap $w, $h
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($left, $top, 0, 0, $bmp.Size)
+          $bmp.Save((Join-Path $env:GITHUB_WORKSPACE 'argon-media.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose(); $bmp.Dispose()
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "media capture saved ($w x $h), playback verdict OK"
+
+      - name: Embed media capture in log (base64)
+        if: ${{ always() && hashFiles('argon-media.png') != '' }}
+        shell: pwsh
+        run: |
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('argon-media.png'))
+          Write-Host "ARGON_MEDIA_PNG_BASE64_BEGIN"
+          for ($i = 0; $i -lt $b64.Length; $i += 4000) {
+            Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i))
+          }
+          Write-Host "ARGON_MEDIA_PNG_BASE64_END"
+
+      # Evidence capture only, never a gate: YouTube uses MSE, which Servo has
+      # not implemented (https://github.com/servo/servo/issues/44403). Records
+      # the actual watch-page behavior of the current build so reports to the
+      # user describe observed reality, not assumptions.
+      - name: YouTube watch-page behavior capture (non-fatal)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public class Win32Y {
+            [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
+            [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+            public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+          }
+          '@
+          $exe = Get-ChildItem -Path dist -Recurse -Filter argon.exe | Select-Object -First 1
+          Set-Location $exe.DirectoryName
+          $proc = Start-Process -FilePath $exe.FullName -ArgumentList 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' -PassThru
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            $proc.Refresh()
+            if ($proc.HasExited) { Write-Host "argon exited ($($proc.ExitCode)) before YouTube capture"; exit 1 }
+            if ($proc.MainWindowHandle -ne [IntPtr]::Zero -and $proc.MainWindowTitle.Length -gt 0) { break }
+          }
+          Start-Sleep -Seconds 45   # let page + player attempt to initialize
+          $proc.Refresh()
+          Write-Host "youtube window title: '$($proc.MainWindowTitle)'"
+          [Win32Y]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+          Start-Sleep -Seconds 1
+          $rect = New-Object Win32Y+RECT
+          [Win32Y]::DwmGetWindowAttribute($proc.MainWindowHandle, 9, [ref]$rect, [Runtime.InteropServices.Marshal]::SizeOf([type][Win32Y+RECT])) | Out-Null
+          $sw = [Win32Y]::GetSystemMetrics(0); $sh = [Win32Y]::GetSystemMetrics(1)
+          $left = [Math]::Max(0, $rect.Left); $top = [Math]::Max(0, $rect.Top)
+          $right = [Math]::Min($sw, $rect.Right); $bottom = [Math]::Min($sh, $rect.Bottom)
+          $w = $right - $left; $h = $bottom - $top
+          if ($w -lt 100 -or $h -lt 100) { Write-Host "window too small ($w x $h)"; exit 1 }
+          $bmp = New-Object System.Drawing.Bitmap $w, $h
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($left, $top, 0, 0, $bmp.Size)
+          $bmp.Save((Join-Path $env:GITHUB_WORKSPACE 'argon-youtube.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose(); $bmp.Dispose()
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $env:GITHUB_WORKSPACE 'argon-youtube.png')))
+          Write-Host "ARGON_YT_PNG_BASE64_BEGIN"
+          for ($i = 0; $i -lt $b64.Length; $i += 4000) {
+            Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i))
+          }
+          Write-Host "ARGON_YT_PNG_BASE64_END"
+
       - name: Embed capture in log (base64) for retrieval
         shell: pwsh
         run: |
@@ -133,5 +267,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: argon-ui-capture
-          path: argon-ui.png
+          path: |
+            argon-ui.png
+            argon-media.png
+            argon-youtube.png
+          if-no-files-found: warn
           retention-days: 14

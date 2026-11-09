@@ -61,6 +61,32 @@ jobs:
           workspaces: windows
           cache-all-crates: "true"
 
+      # GStreamer: servo's media-gstreamer feature (enabled in windows/Cargo.toml)
+      # needs the official MSVC runtime + devel packages - the same ones
+      # `mach bootstrap-gstreamer` installs (servo python/servo/platform/windows.py),
+      # pinned to 1.22.8 with sha256. The MSVC installer's bin dir ships
+      # pkg-config, so putting it on PATH is how gstreamer-sys finds the libs
+      # (the same mechanism `mach build` uses via build_env()).
+      - name: Install GStreamer 1.22.8 (MSVC, sha256-pinned)
+        shell: pwsh
+        run: |
+          $deps = @(
+            @{ Url = 'https://github.com/servo/servo-build-deps/releases/download/msvc-deps/gstreamer-1.0-msvc-x86_64-1.22.8.msi'; Sha256 = '37f9973fe5c720ce1f1602e7e599336384b9ff3e4878817987dd6b77265f17bb' },
+            @{ Url = 'https://github.com/servo/servo-build-deps/releases/download/msvc-deps/gstreamer-1.0-devel-msvc-x86_64-1.22.8.msi'; Sha256 = '2d0cf6e89cf88d94e670cd81087c002408161d1c8843c00d3f27d33ce254c523' }
+          )
+          foreach ($d in $deps) {
+            $msi = Join-Path $env:RUNNER_TEMP (Split-Path $d.Url -Leaf)
+            Invoke-WebRequest -Uri $d.Url -OutFile $msi
+            $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne $d.Sha256) { Write-Error "sha256 mismatch for $($d.Url): got $hash"; exit 1 }
+            $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Write-Error "msiexec failed for $msi (exit $($p.ExitCode))"; exit 1 }
+          }
+          $bin = 'C:\gstreamer\1.0\msvc_x86_64\bin'
+          if (-not (Test-Path (Join-Path $bin 'gstreamer-1.0-0.dll'))) { Write-Error "GStreamer runtime not found at $bin after install"; exit 1 }
+          Add-Content $env:GITHUB_PATH $bin
+          Write-Host "GStreamer 1.22.8 installed, $bin on PATH"
+
       - name: Build argon (release)
         working-directory: windows
         run: cargo build --profile release
@@ -90,6 +116,49 @@ jobs:
             Copy-Item $found.FullName target/package/
             Write-Host "packaged $($found.FullName)"
           }
+          # GStreamer runtime + plugins must sit NEXT TO argon.exe: servo passes
+          # the exe directory as the plugin path (servo components/servo/servo.rs,
+          # GStreamerBackend::init_with_plugins). Lists mirror servo v0.7.0
+          # python/servo/gstreamer.py (windows_dlls) and
+          # components/servo/gstreamer_plugin_lists/{common,windows}.rs.in,
+          # version-locked to the pinned GStreamer 1.22.8 MSVC install above.
+          # Hard-fail on any missing file so a media-less zip can never publish.
+          $gstRoot = 'C:\gstreamer\1.0\msvc_x86_64'
+          $gstDlls = @(
+            'avcodec-59.dll','avfilter-8.dll','avformat-59.dll','avutil-57.dll',
+            'bz2.dll','ffi-7.dll','gio-2.0-0.dll','glib-2.0-0.dll','gmodule-2.0-0.dll',
+            'gobject-2.0-0.dll','graphene-1.0-0.dll','intl-8.dll','libcrypto-1_1-x64.dll',
+            'libjpeg-8.dll','libogg-0.dll','libpng16-16.dll','libssl-1_1-x64.dll',
+            'libvorbis-0.dll','libvorbisenc-2.dll','libwinpthread-1.dll','nice-10.dll',
+            'opus-0.dll','orc-0.4-0.dll','pcre2-8-0.dll','swresample-4.dll','theora-0.dll',
+            'theoradec-1.dll','theoraenc-1.dll','z-1.dll',
+            'gstbase-1.0-0.dll','gstcontroller-1.0-0.dll','gstnet-1.0-0.dll','gstreamer-1.0-0.dll',
+            'gstapp-1.0-0.dll','gstaudio-1.0-0.dll','gstfft-1.0-0.dll','gstgl-1.0-0.dll',
+            'gstpbutils-1.0-0.dll','gstplay-1.0-0.dll','gstriff-1.0-0.dll','gstrtp-1.0-0.dll',
+            'gstrtsp-1.0-0.dll','gstsctp-1.0-0.dll','gstsdp-1.0-0.dll','gsttag-1.0-0.dll',
+            'gstvideo-1.0-0.dll','gstcodecparsers-1.0-0.dll','gstplayer-1.0-0.dll',
+            'gstwebrtc-1.0-0.dll','gstwebrtcnice-1.0-0.dll'
+          )
+          $gstPlugins = @(
+            'gstcoreelements','gstnice','gstapp','gstaudioconvert','gstaudioresample',
+            'gstgio','gstogg','gstopengl','gstopus','gstplayback','gsttheora',
+            'gsttypefindfunctions','gstvideoconvertscale','gstvolume','gstvorbis',
+            'gstaudiofx','gstaudioparsers','gstautodetect','gstdeinterleave','gstid3demux',
+            'gstinterleave','gstisomp4','gstmatroska','gstrtp','gstrtpmanager',
+            'gstvideofilter','gstvpx','gstwavparse','gstaudiobuffersplit','gstdtls',
+            'gstid3tag','gstproxy','gstvideoparsersbad','gstwebrtc','gstlibav','gstwasapi'
+          )
+          foreach ($dll in $gstDlls) {
+            $src = Join-Path $gstRoot "bin\$dll"
+            if (-not (Test-Path $src)) { Write-Error "GStreamer DLL missing: $src"; exit 1 }
+            Copy-Item $src target/package/ -Force
+          }
+          foreach ($plugin in $gstPlugins) {
+            $src = Join-Path $gstRoot "lib\gstreamer-1.0\$plugin.dll"
+            if (-not (Test-Path $src)) { Write-Error "GStreamer plugin missing: $src"; exit 1 }
+            Copy-Item $src target/package/ -Force
+          }
+          Write-Host "packaged $($gstDlls.Count) GStreamer DLLs and $($gstPlugins.Count) plugins"
           $checkout = Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts" -Directory -Filter 'servo-*' | ForEach-Object { Get-ChildItem $_.FullName -Directory } | Where-Object { Test-Path (Join-Path $_.FullName 'resources') } | Select-Object -First 1
           if (-not $checkout) { Write-Error 'Servo resources checkout not found'; exit 1 }
           Copy-Item -Recurse (Join-Path $checkout.FullName 'resources') (Join-Path 'target/package' 'resources')
