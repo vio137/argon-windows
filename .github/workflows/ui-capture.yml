@@ -13,6 +13,10 @@ on:
         description: 'Release tag whose argon-windows-x64.zip to capture (nightly or nightly-candidate)'
         required: true
         default: 'nightly'
+      build_run_id:
+        description: 'Optional exact windows-build run artifact to inspect instead of any public release'
+        required: false
+        default: ''
 
 jobs:
   capture:
@@ -23,7 +27,27 @@ jobs:
       # Needed for windows/tests/media (the local mp4 playback assertion page).
       - uses: actions/checkout@v4
 
+      - name: Download exact candidate build artifact
+        if: inputs.build_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-windows-x64
+          path: artifact-in
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Expand exact candidate build artifact
+        if: inputs.build_run_id != ''
+        shell: pwsh
+        run: |
+          $zip=Get-ChildItem artifact-in -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { throw 'Exact build artifact contains no distribution zip' }
+          Copy-Item $zip.FullName argon-nightly.zip
+          (Get-FileHash argon-nightly.zip -Algorithm SHA256).Hash.ToLower() | Set-Content candidate-zip-sha256.txt
+          Expand-Archive argon-nightly.zip -DestinationPath dist
+
       - name: Download published nightly distribution zip
+        if: inputs.build_run_id == ''
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/vio137/argon-windows/releases/download/${{ inputs.release_tag }}/argon-windows-x64.zip" -OutFile argon-nightly.zip
