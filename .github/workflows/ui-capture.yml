@@ -33,6 +33,9 @@ jobs:
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
             [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+            [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
+            [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
             public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
           }
           '@
@@ -51,16 +54,30 @@ jobs:
           }
           if ($hwnd -eq [IntPtr]::Zero) { Write-Error "no Argon main window appeared within 60s (session may not support headed windows)"; exit 1 }
           Write-Host "Argon window found: '$($proc.MainWindowTitle)' ($hwnd)"
+          # Fit the window fully inside the actual display so the capture has no
+          # off-screen black regions and no neighbours bleed into the frame.
+          $sw = [Win32]::GetSystemMetrics(0); $sh = [Win32]::GetSystemMetrics(1)
+          Write-Host "screen: ${sw}x${sh}"
+          $tw = [Math]::Min(1280, $sw - 40); $th = [Math]::Min(800, $sh - 40)
+          if (-not [Win32]::MoveWindow($hwnd, 20, 20, $tw, $th, $true)) { Write-Error "MoveWindow failed"; exit 1 }
+          Start-Sleep -Seconds 3
           [Win32]::SetForegroundWindow($hwnd) | Out-Null
           Start-Sleep -Seconds 20   # let chrome + page finish rendering
+          # Visible frame bounds (excludes the invisible DWM resize borders that
+          # GetWindowRect includes and that leaked the console/taskbar before).
           $rect = New-Object Win32+RECT
-          if (-not [Win32]::GetWindowRect($hwnd, [ref]$rect)) { Write-Error "GetWindowRect failed"; exit 1 }
-          $w = $rect.Right - $rect.Left; $h = $rect.Bottom - $rect.Top
-          Write-Host "Window rect: $($rect.Left),$($rect.Top) ${w}x${h}"
+          $DWMWA_EXTENDED_FRAME_BOUNDS = 9
+          $hr = [Win32]::DwmGetWindowAttribute($hwnd, $DWMWA_EXTENDED_FRAME_BOUNDS, [ref]$rect, [Runtime.InteropServices.Marshal]::SizeOf([type][Win32+RECT]))
+          if ($hr -ne 0) { Write-Error "DwmGetWindowAttribute failed ($hr)"; exit 1 }
+          # Clip to the screen just in case.
+          $left = [Math]::Max(0, $rect.Left); $top = [Math]::Max(0, $rect.Top)
+          $right = [Math]::Min($sw, $rect.Right); $bottom = [Math]::Min($sh, $rect.Bottom)
+          $w = $right - $left; $h = $bottom - $top
+          Write-Host "Visible frame: $left,$top ${w}x${h}"
           if ($w -lt 100 -or $h -lt 100) { Write-Error "window too small to be real ($w x $h)"; exit 1 }
           $bmp = New-Object System.Drawing.Bitmap $w, $h
           $g = [System.Drawing.Graphics]::FromImage($bmp)
-          $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+          $g.CopyFromScreen($left, $top, 0, 0, $bmp.Size)
           $out = Join-Path $env:GITHUB_WORKSPACE 'argon-ui.png'
           $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
           $g.Dispose(); $bmp.Dispose()
