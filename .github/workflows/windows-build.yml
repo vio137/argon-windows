@@ -135,6 +135,7 @@ jobs:
         working-directory: windows
         shell: pwsh
         run: |
+          if (Test-Path target/package) { Remove-Item target/package -Recurse -Force }
           New-Item -ItemType Directory -Force target/package | Out-Null
           Copy-Item target/release/argon.exe target/package/
           Get-ChildItem target/release/*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination target/package/
