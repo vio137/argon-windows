@@ -87,6 +87,19 @@ jobs:
           }
           if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'smoke.png'); Write-Host "smoke ok" } else { Write-Warning "no screenshot produced" }
 
+      - name: Embed smoke screenshot in log (base64) for retrieval
+        if: success()
+        shell: pwsh
+        run: |
+          if (Test-Path smoke.png) {
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('smoke.png'))
+            Write-Host "ARGON_SMOKE_PNG_BASE64_BEGIN"
+            for ($i = 0; $i -lt $b64.Length; $i += 4000) {
+              Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i))
+            }
+            Write-Host "ARGON_SMOKE_PNG_BASE64_END"
+          }
+
       - name: Upload smoke screenshot
         uses: actions/upload-artifact@v4
         with:
