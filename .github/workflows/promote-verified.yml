@@ -1,0 +1,64 @@
+name: promote-verified
+
+# The ONLY nightly publication path. Reuses exact package artifacts, never
+# rebuilds/repackages after inspection. All source builds are artifact-only.
+on:
+  workflow_dispatch:
+    inputs:
+      package_run_id:
+        description: 'Successful package-release run containing candidate assets'
+        required: true
+      verification_run_id:
+        description: 'Successful ui-capture run that inspected this exact zip'
+        required: true
+jobs:
+  promote:
+    runs-on: windows-2022
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Require successful runs from the expected workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $repo = '${{ github.repository }}'
+          foreach ($entry in @(
+            @{ Id = '${{ inputs.package_run_id }}'; Path = '.github/workflows/package-release.yml' },
+            @{ Id = '${{ inputs.verification_run_id }}'; Path = '.github/workflows/ui-capture.yml' }
+          )) {
+            $r = gh api "repos/$repo/actions/runs/$($entry.Id)" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $r.conclusion -ne 'success' -or $r.path -ne $entry.Path -or $r.event -ne 'workflow_dispatch') {
+              throw "Run $($entry.Id) is not successful verification from $($entry.Path)"
+            }
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          name: argon-candidate-assets
+          path: candidate
+          run-id: ${{ inputs.package_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: argon-verification
+          path: evidence
+          run-id: ${{ inputs.verification_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Require exact inspected zip identity
+        shell: pwsh
+        run: |
+          $actual = (Get-FileHash candidate/argon-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+          $verified = (Get-Content evidence/candidate-zip-sha256.txt -Raw).Trim().ToLower()
+          if ($actual -ne $verified) { throw "Candidate zip does not match inspected zip" }
+          if (-not (Test-Path candidate/argon-setup-x64.exe)) { throw 'Candidate installer missing' }
+          Write-Host "Verified candidate SHA256: $actual"
+      - name: Promote exact checked assets to nightly
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Argon nightly (Windows x64)
+          prerelease: true
+          files: |
+            candidate/argon-windows-x64.zip
+            candidate/argon-setup-x64.exe

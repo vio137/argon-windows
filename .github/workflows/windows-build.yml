@@ -108,6 +108,27 @@ jobs:
         shell: pwsh
         run: Get-ChildItem target/release -File | Where-Object { $_.Extension -in '.exe','.dll' } | Select-Object Name,Length | Format-Table -AutoSize
 
+      # Preserve the expensive native outputs independently of distribution
+      # packaging. This is NOT a verified distribution and never publishes.
+      - name: Preserve raw native outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force raw-native | Out-Null
+          Copy-Item windows/target/release/argon.exe raw-native/
+          Get-ChildItem windows/target/release -Filter *.dll -File | Copy-Item -Destination raw-native/
+          foreach ($dll in 'libEGL.dll', 'libGLESv2.dll') {
+            $found = Get-ChildItem windows/target -Recurse -Filter $dll -File | Select-Object -First 1
+            if ($found) { Copy-Item $found.FullName raw-native/ }
+          }
+          Set-Content raw-native/source-commit.txt '${{ github.sha }}'
+      - name: Upload raw native outputs (not a distribution)
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-raw-native-x64
+          path: raw-native/
+          if-no-files-found: error
+          retention-days: 14
+
       # Distribution layout: exe + DLLs + Servo's engine resources (internal
       # pages, resource protocol handlers) taken from the cargo git checkout.
       - name: Package for distribution
@@ -225,7 +246,7 @@ jobs:
             Write-Error "packaged headless launch failed with exit $code"
             exit $code
           }
-          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke.png'); Write-Host "smoke.png written" } else { Write-Warning "no screenshot produced" }
+          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke.png'); Write-Host "smoke.png written" } else { throw "No smoke screenshot produced" }
 
       - name: Upload smoke diagnostics
         if: always()
@@ -237,25 +258,3 @@ jobs:
             windows/smoke-output.txt
           if-no-files-found: warn
           retention-days: 14
-
-  release:
-    name: Publish nightly pre-release
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.result == 'success'
-    runs-on: windows-2022
-    permissions:
-      contents: write
-    steps:
-      - name: Download distribution zip
-        uses: actions/download-artifact@v4
-        with:
-          name: argon-windows-x64
-          path: dist
-
-      - name: Update nightly release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: nightly
-          name: Argon nightly (Windows x64)
-          prerelease: true
-          files: dist/argon-windows-x64.zip

@@ -13,7 +13,9 @@ on:
         description: 'windows-build run ID to package (its argon-windows-x64 artifact)'
         required: true
       release_tag:
-        description: 'Release tag to publish to: nightly-candidate for pre-UI-verification, nightly only after the candidate passes headed capture'
+        description: 'Candidate only. Nightly promotion is a separate verified-artifact workflow.'
+        type: choice
+        options: [nightly-candidate]
         required: true
         default: 'nightly-candidate'
 
@@ -26,6 +28,10 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Reject non-candidate destinations
+        shell: pwsh
+        run: |
+          if ('${{ inputs.release_tag }}' -ne 'nightly-candidate') { throw 'Only candidate publication is permitted' }
       - name: Download compiled artifact
         uses: actions/download-artifact@v4
         with:
@@ -68,6 +74,7 @@ jobs:
       - name: Add matching ANGLE DLLs from Servo v0.7.0 official build
         shell: pwsh
         run: |
+          if ((Test-Path dist/libEGL.dll) -and (Test-Path dist/libGLESv2.dll)) { Write-Host 'Using build-produced ANGLE DLLs'; exit 0 }
           Invoke-WebRequest -Uri 'https://github.com/servo/servo/releases/download/v0.7.0/servo-x86_64-windows-msvc.zip' -OutFile servo-win.zip
           $hash = (Get-FileHash servo-win.zip -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne '49d4b2c2d3576f93fad70812ee9e42820f5b84da9103f2a633838109a2fcde53') {
@@ -107,7 +114,7 @@ jobs:
             Add-Content $env:GITHUB_STEP_SUMMARY '```'
             Write-Error "packaged headless launch failed with exit $code"; exit $code
           }
-          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'smoke.png'); Write-Host "smoke ok" } else { Write-Warning "no screenshot produced" }
+          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'smoke.png'); Write-Host "smoke ok" } else { throw "No smoke screenshot produced" }
 
       - name: Embed smoke screenshot in log (base64) for retrieval
         if: success()
@@ -212,7 +219,7 @@ jobs:
           Get-Content installed-smoke-output.txt
           Copy-Item installed-smoke-output.txt (Join-Path $env:GITHUB_WORKSPACE 'installed-smoke-output.txt')
           if ($code -ne 0) { Write-Error "installed exe headless launch failed with exit $code"; exit $code }
-          if (-not (Test-Path installed-smoke.png)) { Write-Warning "installed exe produced no screenshot" }
+          if (-not (Test-Path installed-smoke.png)) { throw "Installed exe produced no screenshot" }
           $uninst = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Argon' -ErrorAction SilentlyContinue
           if (-not $uninst -or -not $uninst.UninstallString) { Write-Error "uninstall registry entry missing"; exit 1 }
           Set-Location $env:GITHUB_WORKSPACE
@@ -227,10 +234,20 @@ jobs:
           if (-not $gone) { Write-Error "silent uninstall left argon.exe behind after 60s"; exit 1 }
           Write-Host "installer verified: silent install, installed launch, uninstall entry, silent uninstall all OK"
 
-      - name: Publish verified zip to the selected pre-release tag
+      - name: Preserve exact candidate assets for later verified promotion
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-candidate-assets
+          path: |
+            argon-windows-x64.zip
+            argon-setup-x64.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish package-checked candidate (not nightly)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag }}
+          tag_name: nightly-candidate
           name: Argon ${{ inputs.release_tag }} (Windows x64)
           prerelease: true
           files: |

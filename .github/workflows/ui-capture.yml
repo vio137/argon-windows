@@ -27,6 +27,7 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/vio137/argon-windows/releases/download/${{ inputs.release_tag }}/argon-windows-x64.zip" -OutFile argon-nightly.zip
+          (Get-FileHash argon-nightly.zip -Algorithm SHA256).Hash.ToLower() | Set-Content candidate-zip-sha256.txt
           Expand-Archive argon-nightly.zip -DestinationPath dist
 
       - name: Launch Argon headed and capture its window only
@@ -158,7 +159,7 @@ jobs:
           <!DOCTYPE html><html><head><meta charset="utf-8"><title>Argon media test pending</title>
           <style>body{margin:0;background:#181a1f;color:#e8eaed;font-family:sans-serif}#status{padding:12px 16px;font-size:20px}video{width:640px;margin:0 16px;background:#000}</style>
           </head><body><div id="status">media test running...</div>
-          <video id="v" autoplay muted loop src="sample.mp4"></video>
+          <video id="v" autoplay muted src="sample.mp4"></video>
           <script>
             var v = document.getElementById('v'), s = document.getElementById('status');
             var t0 = null;
@@ -175,9 +176,9 @@ jobs:
                 bad('timeout readyState' + v.readyState);
               }
             }, 25000);
-          </scr`ipt>
+          </script>
           </body></html>
-          '@ -replace '`','' | Set-Content -Encoding utf8 (Join-Path $mediaDir 'ci-media-test.html')
+          '@ | Set-Content -Encoding utf8 (Join-Path $mediaDir 'ci-media-test.html')
           $url = 'file:///' + ($mediaDir -replace '\\','/') + '/ci-media-test.html'
           Write-Host "launching $($exe.FullName) $url"
           Set-Location $exe.DirectoryName
@@ -324,4 +325,14 @@ jobs:
             argon-media-b.png
             argon-youtube.png
           if-no-files-found: warn
+          retention-days: 14
+
+      # Issued only if every required UI/media gate above succeeds. Promotion
+      # compares this hash with the immutable packaging artifact, never a URL.
+      - name: Upload successful verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-verification
+          path: candidate-zip-sha256.txt
+          if-no-files-found: error
           retention-days: 14
