@@ -311,14 +311,17 @@ impl Gui {
 
         winit_window.set_visible(true);
 
+        // Zen's chrome is dark by default; start there rather than the system theme.
+        context.egui_ctx.set_theme(egui::Theme::Dark);
+
         context.egui_ctx.options_mut(|options| {
             // Disable the builtin egui handlers for the Ctrl+Plus, Ctrl+Minus and Ctrl+0
             // shortcuts as they don't work well with servoshell's `device-pixel-ratio` CLI argument.
             options.zoom_with_keyboard = false;
 
-            // On platforms where winit fails to obtain a system theme, fall back to a light theme
-            // since it is the more common default.
-            options.fallback_theme = egui::Theme::Light;
+            // Argon follows Zen's signature dark chrome by default; on platforms
+            // where winit fails to obtain a system theme, fall back to dark too.
+            options.fallback_theme = egui::Theme::Dark;
         });
 
         Self {
@@ -439,62 +442,65 @@ impl Gui {
             visuals.widgets.active.expansion = 0.0;
             visuals.widgets.hovered.expansion = 0.0;
 
-            let tab = if compact_row {
-                // Compact rows key on the favicon alone (Zen compact mode), falling
-                // back to the first letter of the title when there is no favicon yet.
-                match favicon_texture {
-                    Some(favicon) => tab_frame
-                        .content_ui
-                        .add(Button::selectable(
-                            active,
+            // Favicon, title and close button share ONE horizontal row (Zen's tab
+            // row). The default vertical content_ui stacked them, clipping the
+            // title and wrapping the close button onto its own line.
+            let mut tab_opt: Option<egui::Response> = None;
+            let mut close_clicked = false;
+            tab_frame.content_ui.horizontal(|ui| {
+                let tab = if compact_row {
+                    // Compact rows key on the favicon alone (Zen compact mode), falling
+                    // back to the first letter of the title when there is no favicon yet.
+                    match favicon_texture {
+                        Some(favicon) => ui
+                            .add(Button::selectable(
+                                active,
+                                egui::Image::from_texture(favicon)
+                                    .fit_to_exact_size(egui::vec2(16.0, 16.0))
+                                    .bg_fill(egui::Color32::TRANSPARENT),
+                            ))
+                            .on_hover_ui(|ui| {
+                                ui.label(&label);
+                            }),
+                        None => ui
+                            .add(Button::selectable(
+                                active,
+                                truncate_with_ellipsis(&label, 1),
+                            ))
+                            .on_hover_ui(|ui| {
+                                ui.label(&label);
+                            }),
+                    }
+                } else {
+                    if let Some(favicon) = favicon_texture {
+                        ui.add(
                             egui::Image::from_texture(favicon)
                                 .fit_to_exact_size(egui::vec2(16.0, 16.0))
                                 .bg_fill(egui::Color32::TRANSPARENT),
-                        ))
-                        .on_hover_ui(|ui| {
-                            ui.label(&label);
-                        }),
-                    None => tab_frame
-                        .content_ui
-                        .add(Button::selectable(
-                            active,
-                            truncate_with_ellipsis(&label, 1),
-                        ))
-                        .on_hover_ui(|ui| {
-                            ui.label(&label);
-                        }),
-                }
-            } else {
-                if let Some(favicon) = favicon_texture {
-                    tab_frame.content_ui.add(
-                        egui::Image::from_texture(favicon)
-                            .fit_to_exact_size(egui::vec2(16.0, 16.0))
-                            .bg_fill(egui::Color32::TRANSPARENT),
-                    );
-                }
-                tab_frame
-                    .content_ui
-                    .add(Button::selectable(
+                        );
+                    }
+                    ui.add(Button::selectable(
                         active,
-                        truncate_with_ellipsis(&label, 24),
+                        truncate_with_ellipsis(&label, 18),
                     ))
                     .on_hover_ui(|ui| {
                         ui.label(&label);
                     })
-            };
+                };
 
-            let mut close_clicked = false;
-            if !compact_row {
-                let close_button = tab_frame
-                    .content_ui
-                    .add(egui::Button::new("X").fill(egui::Color32::TRANSPARENT));
-                close_button.widget_info(|| {
-                    let mut info = WidgetInfo::new(WidgetType::Button);
-                    info.label = Some("Close".into());
-                    info
-                });
-                close_clicked = close_button.clicked() || close_button.middle_clicked();
-            }
+                if !compact_row {
+                    let close_button =
+                        ui.add(egui::Button::new("X").fill(egui::Color32::TRANSPARENT));
+                    close_button.widget_info(|| {
+                        let mut info = WidgetInfo::new(WidgetType::Button);
+                        info.label = Some("Close".into());
+                        info
+                    });
+                    close_clicked = close_button.clicked() || close_button.middle_clicked();
+                }
+                tab_opt = Some(tab);
+            });
+            let tab = tab_opt.expect("tab row always renders");
 
             if tab.secondary_clicked() {
                 // Right-click toggles the pinned state, as in Zen's essentials.

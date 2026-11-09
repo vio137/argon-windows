@@ -57,7 +57,7 @@ use crate::window::{
     ServoShellWindowId, TopLevelWebViewCreationRequest,
 };
 
-pub(crate) const INITIAL_WINDOW_TITLE: &str = "Servo";
+pub(crate) const INITIAL_WINDOW_TITLE: &str = "Argon";
 
 pub struct HeadedWindow {
     /// The egui interface that is responsible for showing the user interface elements of
@@ -835,6 +835,8 @@ impl PlatformWindow for HeadedWindow {
                     .filter(|title| !title.is_empty())
                     .or_else(|| webview.url().map(|url| url.to_string()))
             })
+            // Argon-branded titlebar: "<page> - Argon", falling back to just "Argon".
+            .map(|title| format!("{} - Argon", title))
             .unwrap_or_else(|| INITIAL_WINDOW_TITLE.to_string());
         if title != *self.last_title.borrow() {
             self.winit_window.set_title(&title);
@@ -990,7 +992,7 @@ impl PlatformWindow for HeadedWindow {
         let size = self.winit_window.outer_size();
 
         let window_attr = winit::window::Window::default_attributes()
-            .with_title("Servo XR".to_string())
+            .with_title("Argon XR".to_string())
             .with_inner_size(size)
             .with_visible(false);
 

@@ -55,6 +55,7 @@ jobs:
           }
           if ($hwnd -eq [IntPtr]::Zero) { Write-Error "no Argon main window appeared within 60s (session may not support headed windows)"; exit 1 }
           Write-Host "Argon window found: '$($proc.MainWindowTitle)' ($hwnd)"
+          if ($proc.MainWindowTitle -notlike '*Argon*') { Write-Error "window title '$($proc.MainWindowTitle)' carries no Argon branding"; exit 1 }
           # Fit the window fully inside the actual display so the capture has no
           # off-screen black regions and no neighbours bleed into the frame.
           $sw = [Win32]::GetSystemMetrics(0); $sh = [Win32]::GetSystemMetrics(1)
@@ -105,6 +106,13 @@ jobs:
           $bmp.Dispose()
           Write-Host "distinct sampled colors: $($colors.Count)"
           if ($colors.Count -lt 4) { Write-Error "capture looks blank/uniform - not a real UI image"; exit 1 }
+
+          # Dark-chrome check: the left sidebar surface must be Zen-dark, not light.
+          $bmp2 = [System.Drawing.Bitmap]::FromFile('argon-ui.png')
+          $px = $bmp2.GetPixel(8, [int]($bmp2.Height / 2))
+          $bmp2.Dispose()
+          Write-Host "sidebar pixel: $($px.R),$($px.G),$($px.B)"
+          if ($px.R -gt 80 -or $px.G -gt 80 -or $px.B -gt 80) { Write-Error "sidebar is light ($($px.R),$($px.G),$($px.B)) - Zen dark chrome not applied"; exit 1 }
 
       - name: Embed capture in log (base64) for retrieval
         shell: pwsh
