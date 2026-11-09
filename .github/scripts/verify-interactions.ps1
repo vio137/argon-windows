@@ -93,6 +93,7 @@ try {
  Click-Element (Find-Named 'Save page')
  $saved=(Get-Content $config -Raw|ConvertFrom-Json).saved_pages
  if ($saved.Count -ne 1 -or $saved[0].url -ne $url) { throw 'Explicit saved page did not persist' }
+ Capture 'argon-settings-saved-full.png'
  Click-Element (Find-Named 'Settings')
  Click-Element (Find-Named 'Light')
  if (-not (Test-Path $config)) {
@@ -150,8 +151,17 @@ try {
  if ((Get-Content $config -Raw|ConvertFrom-Json).sidebar_compact -ne $true) { throw 'Settings lost across restart' }
  $saved=(Get-Content $config -Raw|ConvertFrom-Json).saved_pages
  if ($saved.Count -ne 1 -or $saved[0].url -ne $url) { throw 'Saved page lost after restart' }
+ Capture 'argon-settings-saved-compact.png'
  Click-Element (Find-Named 'Remove saved page')
  if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Saved page removal did not persist' }
+ # Focus actual page content so Ctrl+D exercises the Servo interception path.
+ $r=$script:root.Current.BoundingRectangle
+ [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width*0.75),[int]($r.Y+$r.Height/2))|Out-Null
+ [ArgonInteraction]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+ [ArgonInteraction]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+ [System.Windows.Forms.SendKeys]::SendWait('^d')
+ Start-Sleep 1
+ if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 1) { throw 'Page-focused Ctrl+D did not save exactly once' }
  Capture 'argon-settings-restarted.png' 
  # Open the page menu using a physical secondary click within the app frame.
  $r=$script:root.Current.BoundingRectangle
@@ -182,6 +192,19 @@ try {
  Click-Element (Find-Named 'Copy address')
  if ((Get-Clipboard) -ne 'about:blank') { throw 'Home did not navigate to the saved homepage' }
  Capture 'argon-settings-home-navigation.png'
+ Click-Element (Find-Named 'Open saved page: Argon JS OK')
+ Start-Sleep 3
+ $script:proc.Refresh()
+ if ($script:proc.MainWindowTitle -notlike 'Argon JS OK*') { throw 'Saved sidebar did not open the saved page' }
+ Capture 'argon-settings-saved-reopened.png'
+ $savedButton=Find-Named 'Open saved page: Argon JS OK'
+ $b=$savedButton.Current.BoundingRectangle
+ [ArgonInteraction]::SetCursorPos([int]($b.X+$b.Width/2),[int]($b.Y+$b.Height/2))|Out-Null
+ [ArgonInteraction]::mouse_event(8,0,0,0,[UIntPtr]::Zero)
+ [ArgonInteraction]::mouse_event(16,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep 1
+ if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Sidebar right-click removal did not persist' }
+ Write-Host 'Saved-page gates passed: toolbar save, restart persistence, toolbar removal, page Ctrl+D, sidebar reopen and right-click removal'
  Write-Host 'Interaction gates passed: JS execution, theme and compact settings persistence across restart, homepage editing and Home navigation, right-click menu and Copy address' 
 } finally {
  if ($script:proc -and -not $script:proc.HasExited) { Stop-Process -Id $script:proc.Id -Force -ErrorAction SilentlyContinue }
