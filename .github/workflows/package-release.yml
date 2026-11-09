@@ -159,7 +159,7 @@ jobs:
           !insertmacro MUI_LANGUAGE "English"
           Section "Argon browser" SecMain
             SetOutPath "$INSTDIR"
-            File /r "dist\*.*"
+            File /r "__DISTDIR__\*.*"
             WriteUninstaller "$INSTDIR\uninstall.exe"
             CreateDirectory "$SMPROGRAMS\Argon"
             CreateShortcut "$SMPROGRAMS\Argon\Argon.lnk" "$INSTDIR\argon.exe"
