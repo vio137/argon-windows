@@ -14,22 +14,24 @@ jobs:
         with:
           name: argon-candidate-assets
           path: candidate
-          run-id: 42620577727
+          run-id: 42635056375
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish explicitly unverified-feature preview
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: preview-13a17bb
-          name: Argon Windows preview (13a17bb)
+          tag_name: preview-7c4e382
+          name: Argon Windows preview (7c4e382)
           prerelease: true
           body: |
             Early preview published at the user's request before remaining feature tests finish.
 
             Passed: native Windows compilation, clean-directory launch and page rendering, installer silent install, installed launch, and uninstall.
 
-            Not yet verified: settings interactions/persistence, right-click menu actions, JavaScript feature-specific assertions, and direct-video playback. YouTube playback and audio output are not verified. Servo does not currently implement the MSE support needed by YouTube (servo/servo#44403).
+            Also passed on the exact native binary with the same runtime resources: headed JavaScript execution, Light/Dark/compact settings persistence, homepage editing, restart, Home navigation, right-click menu and Copy address, silent local H264 video playback. Real Windows dark/light panel blur and menu pixels were inspected.
 
-            Uses the exact zip and installer preserved by successful package run 42620577727, from source build 42613885796 (13a17bb). This preview does not replace the previously checked nightly release. Feature testing continues separately.
+            Remaining checks: final packaged-copy headed interaction retest is in progress. Audio output, remote streaming and YouTube playback are not verified. The observed YouTube page-load failure was SendRequest, not an observed player failure. Native desktop acrylic quality is not independently verified.
+
+            Uses the exact installer and zip preserved by successful package run 42635056375, with native output from source build 42632106345 (7c4e382) and unchanged compatible runtime resources from build 42627002393. This preview does not replace the previous preview or nightly. Work continues.
           files: |
             candidate/argon-windows-x64.zip
             candidate/argon-setup-x64.exe
