@@ -575,7 +575,7 @@ impl Gui {
             {
                 let dir = std::env::var("USERPROFILE")
                     .map(|home| std::path::PathBuf::from(home).join("Pictures").join("Argon"))
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
                 active.take_screenshot(None, move |image| {
                     match image {
                         Ok(image) => {
