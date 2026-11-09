@@ -12,6 +12,10 @@ on:
       run_id:
         description: 'windows-build run ID to package (its argon-windows-x64 artifact)'
         required: true
+      release_tag:
+        description: 'Release tag to publish to: nightly-candidate for pre-UI-verification, nightly only after the candidate passes headed capture'
+        required: true
+        default: 'nightly-candidate'
 
 jobs:
   package:
@@ -223,11 +227,11 @@ jobs:
           if (-not $gone) { Write-Error "silent uninstall left argon.exe behind after 60s"; exit 1 }
           Write-Host "installer verified: silent install, installed launch, uninstall entry, silent uninstall all OK"
 
-      - name: Publish verified zip to nightly pre-release
+      - name: Publish verified zip to the selected pre-release tag
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly
-          name: Argon nightly (Windows x64)
+          tag_name: ${{ inputs.release_tag }}
+          name: Argon ${{ inputs.release_tag }} (Windows x64)
           prerelease: true
           files: |
             argon-windows-x64.zip

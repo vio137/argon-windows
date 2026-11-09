@@ -8,6 +8,11 @@ name: ui-capture
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag whose argon-windows-x64.zip to capture (nightly or nightly-candidate)'
+        required: true
+        default: 'nightly'
 
 jobs:
   capture:
@@ -18,7 +23,7 @@ jobs:
       - name: Download published nightly distribution zip
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri 'https://github.com/vio137/argon-windows/releases/download/nightly/argon-windows-x64.zip' -OutFile argon-nightly.zip
+          Invoke-WebRequest -Uri "https://github.com/vio137/argon-windows/releases/download/${{ inputs.release_tag }}/argon-windows-x64.zip" -OutFile argon-nightly.zip
           Expand-Archive argon-nightly.zip -DestinationPath dist
 
       - name: Launch Argon headed and capture its window only
