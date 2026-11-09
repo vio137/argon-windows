@@ -25,6 +25,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
           Add-Type @'
           using System;
           using System.Runtime.InteropServices;
@@ -57,9 +58,12 @@ jobs:
           # Fit the window fully inside the actual display so the capture has no
           # off-screen black regions and no neighbours bleed into the frame.
           $sw = [Win32]::GetSystemMetrics(0); $sh = [Win32]::GetSystemMetrics(1)
-          Write-Host "screen: ${sw}x${sh}"
-          $tw = [Math]::Min(1280, $sw - 40); $th = [Math]::Min(800, $sh - 40)
-          if (-not [Win32]::MoveWindow($hwnd, 20, 20, $tw, $th, $true)) { Write-Error "MoveWindow failed"; exit 1 }
+          $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+          Write-Host "screen: ${sw}x${sh} working area: $($wa.X),$($wa.Y) $($wa.Width)x$($wa.Height)"
+          # Stay inside the taskbar-excluding working area so the taskbar can
+          # never overlap the window in the capture.
+          $tw = [Math]::Min(1280, $wa.Width - 20); $th = [Math]::Min(800, $wa.Height - 20)
+          if (-not [Win32]::MoveWindow($hwnd, $wa.X + 10, $wa.Y + 10, $tw, $th, $true)) { Write-Error "MoveWindow failed"; exit 1 }
           Start-Sleep -Seconds 3
           [Win32]::SetForegroundWindow($hwnd) | Out-Null
           Start-Sleep -Seconds 20   # let chrome + page finish rendering
