@@ -146,7 +146,7 @@ jobs:
           @'
           !include "MUI2.nsh"
           Name "Argon"
-          OutFile "argon-setup-x64.exe"
+          OutFile "__OUTFILE__"
           Unicode true
           # Per-user install: no elevation, no admin prompt.
           InstallDir "$LOCALAPPDATA\Programs\Argon"
@@ -180,9 +180,12 @@ jobs:
             DeleteRegKey HKCU "Software\Argon"
           SectionEnd
           '@ | Out-File -Encoding ascii $nsi
+          # makensis resolves File/OutFile paths relative to the NSI script's
+          # directory, so inject absolute paths for both.
+          $distAbs = (Resolve-Path dist).Path
+          $outAbs = Join-Path $env:GITHUB_WORKSPACE 'argon-setup-x64.exe'
+          (Get-Content $nsi -Raw).Replace('__DISTDIR__', $distAbs).Replace('__OUTFILE__', $outAbs) | Set-Content $nsi -Encoding ascii
           makensis /V2 $nsi
-          # OutFile is relative to makensis' working directory (the checkout),
-          # so the installer lands next to the zip for the publish step.
           Get-Item argon-setup-x64.exe | Select-Object Name, Length
 
       # Installer verification: package smoke alone does not prove the
