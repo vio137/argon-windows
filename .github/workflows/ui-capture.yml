@@ -1,0 +1,113 @@
+name: ui-capture
+
+# Dispatch-only: launches a packaged Argon build HEADED on the runner's
+# interactive session and captures ONLY the Argon window (never the full
+# desktop, logs or anything else on screen). Produces the first real image of
+# the Zen-style chrome for verification. No recompilation - reuses the exact
+# CI-built artifact from a finished windows-build run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'windows-build run ID to capture (its argon-windows-x64 artifact)'
+        required: true
+
+jobs:
+  capture:
+    name: Launch headed and capture Argon window
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Download compiled artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-windows-x64
+          path: dist
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch Servo v0.7.0 engine resources
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://codeload.github.com/servo/servo/zip/refs/tags/v0.7.0' -OutFile servo-src.zip
+          Expand-Archive servo-src.zip -DestinationPath servo-src
+          Copy-Item -Recurse servo-src/servo-0.7.0/resources dist/resources
+
+      - name: Launch Argon headed and capture its window only
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          using System.Text;
+          public class Win32 {
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+            [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+          }
+'@
+          Set-Location dist
+          $proc = Start-Process -FilePath (Join-Path $PWD 'argon.exe') -PassThru
+          # Wait up to 60s for a main window with a non-empty title.
+          $hwnd = [IntPtr]::Zero
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            $proc.Refresh()
+            if ($proc.HasExited) { Write-Error "argon.exe exited with code $($proc.ExitCode) before showing a window"; exit 1 }
+            if ($proc.MainWindowHandle -ne [IntPtr]::Zero -and $proc.MainWindowTitle.Length -gt 0) { $hwnd = $proc.MainWindowHandle; break }
+          }
+          if ($hwnd -eq [IntPtr]::Zero) { Write-Error "no Argon main window appeared within 60s (session may not support headed windows)"; exit 1 }
+          Write-Host "Argon window found: '$($proc.MainWindowTitle)' ($hwnd)"
+          [Win32]::SetForegroundWindow($hwnd) | Out-Null
+          Start-Sleep -Seconds 20   # let chrome + page finish rendering
+          $rect = New-Object Win32+RECT
+          if (-not [Win32]::GetWindowRect($hwnd, [ref]$rect)) { Write-Error "GetWindowRect failed"; exit 1 }
+          $w = $rect.Right - $rect.Left; $h = $rect.Bottom - $rect.Top
+          Write-Host "Window rect: $($rect.Left),$($rect.Top) ${w}x${h}"
+          if ($w -lt 100 -or $h -lt 100) { Write-Error "window too small to be real ($w x $h)"; exit 1 }
+          $bmp = New-Object System.Drawing.Bitmap $w, $h
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
+          $out = Join-Path $env:GITHUB_WORKSPACE 'argon-ui.png'
+          $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+          $g.Dispose(); $bmp.Dispose()
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "captured $out ($w x $h)"
+
+      - name: Verify capture is not blank
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $bmp = [System.Drawing.Bitmap]::FromFile('argon-ui.png')
+          # Sample a grid of pixels; a uniform image means the capture failed.
+          $colors = @{}
+          for ($x = 0; $x -lt $bmp.Width; $x += 37) {
+            for ($y = 0; $y -lt $bmp.Height; $y += 37) {
+              $c = $bmp.GetPixel($x, $y)
+              $key = "$($c.R),$($c.G),$($c.B)"
+              $colors[$key] = ($colors[$key] ?? 0) + 1
+            }
+          }
+          $bmp.Dispose()
+          Write-Host "distinct sampled colors: $($colors.Count)"
+          if ($colors.Count -lt 4) { Write-Error "capture looks blank/uniform - not a real UI image"; exit 1 }
+
+      - name: Embed capture in log (base64) for retrieval
+        shell: pwsh
+        run: |
+          $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('argon-ui.png'))
+          Write-Host "ARGON_UI_PNG_BASE64_BEGIN"
+          for ($i = 0; $i -lt $b64.Length; $i += 4000) {
+            Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i))
+          }
+          Write-Host "ARGON_UI_PNG_BASE64_END"
+
+      - name: Upload capture artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-ui-capture
+          path: argon-ui.png
+          retention-days: 14
