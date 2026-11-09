@@ -123,6 +123,10 @@ jobs:
           Write-Host "sidebar pixel: $($px.R),$($px.G),$($px.B)"
           if ($px.R -gt 80 -or $px.G -gt 80 -or $px.B -gt 80) { Write-Error "sidebar is light ($($px.R),$($px.G),$($px.B)) - Zen dark chrome not applied"; exit 1 }
 
+      - name: Verify actual JS, settings persistence and context-menu actions
+        shell: pwsh
+        run: ./.github/scripts/verify-interactions.ps1
+
       # Media gate: plays a real local h264 mp4 HEADED and asserts playback
       # actually progresses - the page samples video.currentTime twice and only
       # sets 'Argon VIDEO OK' when playback time advances, then two window
@@ -314,12 +318,30 @@ jobs:
           }
           Write-Host "ARGON_UI_PNG_BASE64_END"
 
+      - name: Embed interaction screenshots for inspection
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem -File argon-settings-*.png,argon-context-menu.png -ErrorAction SilentlyContinue) {
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
+            Write-Host "ARGON_INTERACTION_PNG_BEGIN $($f.Name)"
+            for ($i = 0; $i -lt $b64.Length; $i += 4000) {
+              Write-Host $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i))
+            }
+            Write-Host "ARGON_INTERACTION_PNG_END $($f.Name)"
+          }
+          if (Test-Path interaction-tree.txt) { Get-Content interaction-tree.txt }
+
       - name: Upload capture artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: argon-ui-capture
           path: |
             argon-ui.png
+            argon-settings-*.png
+            argon-context-menu.png
+            interaction-tree.txt
             argon-media.png
             argon-media-a.png
             argon-media-b.png
