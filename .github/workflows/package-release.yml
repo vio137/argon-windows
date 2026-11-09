@@ -26,13 +26,31 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: argon-windows-x64
-          path: dist
+          path: artifact-in
           run-id: ${{ inputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch Servo v0.7.0 engine resources
+      # The artifact wraps the distribution zip itself - expand it so dist/
+      # holds argon.exe at its root (this was the layout bug behind the
+      # "argon.exe not recognized" smoke failure).
+      - name: Expand distribution zip from artifact
         shell: pwsh
         run: |
+          $zip = Get-ChildItem artifact-in -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { Write-Error "no zip inside downloaded artifact"; exit 1 }
+          Expand-Archive -Path $zip.FullName -DestinationPath dist
+          if (-not (Test-Path dist/argon.exe)) {
+            Get-ChildItem -Recurse dist | Select-Object -First 30 FullName
+            Write-Error "argon.exe not at zip root - unexpected layout"
+            exit 1
+          }
+
+      # The build workflow already packages the Servo resources into the zip;
+      # only fetch them (slow codeload) if they are genuinely missing.
+      - name: Fetch Servo v0.7.0 engine resources (if missing)
+        shell: pwsh
+        run: |
+          if (Test-Path dist/resources) { Write-Host "resources already in package - skipping fetch"; exit 0 }
           Invoke-WebRequest -Uri 'https://codeload.github.com/servo/servo/zip/refs/tags/v0.7.0' -OutFile servo-src.zip
           Expand-Archive servo-src.zip -DestinationPath servo-src
           Copy-Item -Recurse servo-src/servo-0.7.0/resources dist/resources
