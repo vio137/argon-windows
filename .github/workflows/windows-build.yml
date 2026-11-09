@@ -140,8 +140,8 @@ jobs:
           $gstDlls = @(
             'avcodec-59.dll','avfilter-8.dll','avformat-59.dll','avutil-57.dll',
             'bz2.dll','ffi-7.dll','gio-2.0-0.dll','glib-2.0-0.dll','gmodule-2.0-0.dll',
-            'gobject-2.0-0.dll','graphene-1.0-0.dll','intl-8.dll','libcrypto-1_1-x64.dll',
-            'libjpeg-8.dll','libogg-0.dll','libpng16-16.dll','libssl-1_1-x64.dll',
+            'gobject-2.0-0.dll','graphene-1.0-0.dll','intl-8.dll',
+            'libjpeg-8.dll','libogg-0.dll','libpng16-16.dll',
             'libvorbis-0.dll','libvorbisenc-2.dll','libwinpthread-1.dll','nice-10.dll',
             'opus-0.dll','orc-0.4-0.dll','pcre2-8-0.dll','swresample-4.dll','theora-0.dll',
             'theoradec-1.dll','theoraenc-1.dll','z-1.dll',
@@ -156,7 +156,7 @@ jobs:
             'gstcoreelements','gstnice','gstapp','gstaudioconvert','gstaudioresample',
             'gstgio','gstogg','gstopengl','gstopus','gstplayback','gsttheora',
             'gsttypefindfunctions','gstvideoconvertscale','gstvolume','gstvorbis',
-            'gstaudiofx','gstaudioparsers','gstautodetect','gstdeinterleave','gstid3demux',
+            'gstaudiofx','gstaudioparsers','gstautodetect','gstdeinterlace','gstid3demux',
             'gstinterleave','gstisomp4','gstmatroska','gstrtp','gstrtpmanager',
             'gstvideofilter','gstvpx','gstwavparse','gstaudiobuffersplit','gstdtls',
             'gstid3tag','gstproxy','gstvideoparsersbad','gstwebrtc','gstlibav','gstwasapi'
@@ -165,6 +165,15 @@ jobs:
             $src = Join-Path $gstRoot "bin\$dll"
             if (-not (Test-Path $src)) { Write-Error "GStreamer DLL missing: $src"; exit 1 }
             Copy-Item $src target/package/ -Force
+          }
+          # OpenSSL: servo v0.7.0's list names the 1.1 DLLs (libcrypto-1_1-x64,
+          # libssl-1_1-x64), but the shipped major version changed across
+          # GStreamer releases - resolve by prefix and copy whatever the pinned
+          # MSI actually carries; hard-fail only if no OpenSSL runtime exists.
+          foreach ($pat in 'libcrypto-*-x64.dll', 'libssl-*-x64.dll') {
+            $found = Get-ChildItem (Join-Path $gstRoot 'bin') -Filter $pat -File
+            if (-not $found) { Write-Error "no OpenSSL runtime matching $pat in $gstRoot\bin"; exit 1 }
+            foreach ($f in $found) { Copy-Item $f.FullName target/package/ -Force; Write-Host "packaged $($f.Name)" }
           }
           foreach ($plugin in $gstPlugins) {
             $src = Join-Path $gstRoot "lib\gstreamer-1.0\$plugin.dll"
