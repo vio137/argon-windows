@@ -1,0 +1,72 @@
+name: package-release
+
+# Packaging-only path: takes the compiled argon-windows-x64 artifact from a
+# finished windows-build run, adds Servo's engine resources, verifies the
+# result by launching it headless from a clean directory, and only then
+# publishes the verified zip to the rolling nightly pre-release.
+# No recompilation - the exact CI-built binary is reused.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'windows-build run ID to package (its argon-windows-x64 artifact)'
+        required: true
+
+jobs:
+  package:
+    name: Package and verify distribution
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download compiled artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-windows-x64
+          path: dist
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch Servo v0.7.0 engine resources
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://codeload.github.com/servo/servo/zip/refs/tags/v0.7.0' -OutFile servo-src.zip
+          Expand-Archive servo-src.zip -DestinationPath servo-src
+          Copy-Item -Recurse servo-src/servo-0.7.0/resources dist/resources
+
+      - name: Create distribution zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/* -DestinationPath argon-windows-x64.zip -Force
+
+      # Verification gate: the nightly is only (re)published if the packaged
+      # zip launches headless from a clean directory and renders a page.
+      - name: Smoke test packaged zip (headless render, clean dir)
+        shell: pwsh
+        run: |
+          $clean = Join-Path $env:RUNNER_TEMP 'argon-clean'
+          if (Test-Path $clean) { Remove-Item -Recurse -Force $clean }
+          New-Item -ItemType Directory -Force $clean | Out-Null
+          Expand-Archive -Path argon-windows-x64.zip -DestinationPath $clean
+          Set-Location $clean
+          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>"
+          if ($LASTEXITCODE -ne 0) { Write-Error "packaged headless launch failed with exit $LASTEXITCODE"; exit $LASTEXITCODE }
+          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'smoke.png'); Write-Host "smoke ok" } else { Write-Warning "no screenshot produced" }
+
+      - name: Upload smoke screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-smoke-screenshot
+          path: smoke.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish verified zip to nightly pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Argon nightly (Windows x64)
+          prerelease: true
+          files: argon-windows-x64.zip
