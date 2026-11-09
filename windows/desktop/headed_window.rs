@@ -116,7 +116,7 @@ impl HeadedWindow {
         let window_attr = winit::window::Window::default_attributes()
             .with_title(INITIAL_WINDOW_TITLE.to_string())
             .with_decorations(!no_native_titlebar)
-            .with_transparent(no_native_titlebar)
+            .with_transparent(cfg!(target_os = "windows") || no_native_titlebar)
             .with_inner_size(LogicalSize::new(inner_size.width, inner_size.height))
             .with_min_inner_size(LogicalSize::new(
                 MIN_WINDOW_INNER_SIZE.width,
@@ -145,6 +145,11 @@ impl HeadedWindow {
             .window_handle()
             .expect("winit window did not have a window handle");
         HeadedWindow::force_srgb_color_space(window_handle.as_raw());
+        #[cfg(target_os = "windows")]
+        if let Err(error) = window_vibrancy::apply_acrylic(&winit_window, Some((18, 22, 24, 180))) {
+            log::warn!("Windows acrylic backdrop unavailable: {error}");
+        }
+
 
         let monitor = winit_window
             .current_monitor()

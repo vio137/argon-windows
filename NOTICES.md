@@ -19,3 +19,11 @@ source code is vendored; the layout was reimplemented for the egui shell.
 ## Chromium
 
 Chromium is a feature reference only; no Chromium code is used.
+
+## Original Argon workspace design
+
+The rebuilt workspace UI uses the design process from **unslop by Damir
+Sokolovsky** (https://github.com/heydamir/unslop), licensed CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/). Adapted for a native Rust/egui
+browser. Reference artwork is not included. Design changes and validation
+notes are in `docs/design/argon-workspace.md`.

@@ -292,6 +292,7 @@ fn configure_fonts() -> FontDefinitions {
     load_cjk_fonts(&[
         (r"C:\Windows\Fonts\malgun.ttf", "Malgun Gothic"), // Korean
         (r"C:\Windows\Fonts\msyh.ttc", "Microsoft YaHei"), // Chinese + Japanese
+        (r"C:\Windows\Fonts\segoeui.ttf", "Segoe UI"), // Native Windows interface
     ])
 }
 
@@ -489,140 +490,92 @@ impl Gui {
             .min_size(Vec2 { x: 20.0, y: 20.0 })
     }
 
-    /// Draws a vertical, Zen-style browser tab row in the tab sidebar, checking for clicks
-    /// and queuing appropriate [`UserInterfaceCommand`]s. In compact mode the row collapses
-    /// to just the favicon; middle-click still closes the tab.
-    /// Using a custom widget here would've been nice, but it doesn't seem as though egui
-    /// supports that, so we arrange multiple Widgets in a way that they look connected.
-    fn browser_tab_vertical(
-        ui: &mut egui::Ui,
-        window: &ServoShellWindow,
-        webview: WebView,
-        favicon_texture: Option<egui::load::SizedTexture>,
-        compact: bool,
-        pinned: bool,
-        pinned_tabs: &mut std::collections::HashSet<WebViewId>,
-    ) {
-        let label = match (webview.page_title(), webview.url()) {
-            (Some(title), _) if !title.is_empty() => title,
-            (_, Some(url)) => url.to_string(),
-            _ => "New Tab".into(),
+    /// One consistent 18px line-icon vocabulary, independent of font glyphs.
+    fn icon(ui: &mut egui::Ui, name: &str, enabled: bool) -> egui::Response {
+        let (rect, mut response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
+        if !enabled { response = response.on_disabled_hover_text(name); }
+        let color = if !enabled { ui.visuals().weak_text_color() }
+            else { ui.visuals().text_color() };
+        if enabled && response.hovered() {
+            ui.painter().rect_filled(rect, 8, ui.visuals().widgets.hovered.weak_bg_fill);
+        }
+        let origin = rect.center() - egui::vec2(9.0, 9.0);
+        let stroke = egui::Stroke::new(1.5, color);
+        let paths: &[&[(f32, f32)]] = match name {
+            "Back" => &[&[(11.,3.),(5.,9.),(11.,15.)]],
+            "Forward" => &[&[(7.,3.),(13.,9.),(7.,15.)]],
+            "Reload" => &[&[(14.,7.),(12.,3.),(7.,2.),(3.,5.),(2.,10.),(5.,14.),(10.,16.),(14.,13.)],&[(10.,7.),(15.,7.),(15.,2.)]],
+            "New tab" => &[&[(3.,9.),(15.,9.)],&[(9.,3.),(9.,15.)]],
+            "Close" => &[&[(5.,5.),(13.,13.)],&[(13.,5.),(5.,13.)]],
+            "Home" => &[&[(2.,8.),(9.,2.),(16.,8.)],&[(4.,7.),(4.,16.),(14.,16.),(14.,7.)]],
+            "Settings" => &[&[(2.,4.),(16.,4.)],&[(2.,9.),(16.,9.)],&[(2.,14.),(16.,14.)],&[(6.,2.),(6.,6.)],&[(12.,7.),(12.,11.)],&[(7.,12.),(7.,16.)]],
+            "Collapse tab sidebar" => &[&[(11.,4.),(6.,9.),(11.,14.)]],
+            "Expand tab sidebar" => &[&[(7.,4.),(12.,9.),(7.,14.)]],
+            "New window" => &[&[(2.,3.),(16.,3.),(16.,15.),(2.,15.),(2.,3.)],&[(2.,7.),(16.,7.)]],
+            _ => &[&[(4.,9.),(14.,9.)]],
         };
-
-        let inactive_bg_color = ui.visuals().window_fill;
-        let active_bg_color = ui.visuals().widgets.active.weak_bg_fill;
-        let active = window.active_webview().map(|webview| webview.id()) == Some(webview.id());
-        let full_width = ui.available_width();
-        // Pinned tabs (Zen essentials) always render as favicon-only rows.
-        let compact_row = compact || pinned;
-
-        // Setup a tab frame that will contain the favicon, title and close button
-        let mut tab_frame = egui::Frame::NONE.corner_radius(7).begin(ui);
-        {
-            tab_frame.content_ui.set_min_width((full_width - 12.0).max(0.0));
-            tab_frame.content_ui.add_space(4.0);
-
-            let visuals = tab_frame.content_ui.visuals_mut();
-            // Remove the stroke so we don't see the border between the close button and the label
-            visuals.widgets.active.bg_stroke.width = 0.0;
-            visuals.widgets.hovered.bg_stroke.width = 0.0;
-            // Now we make sure the fill color is always the same, irrespective of state, that way
-            // we can make sure that both the label and close button have the same background color
-            visuals.widgets.noninteractive.weak_bg_fill = inactive_bg_color;
-            visuals.widgets.inactive.weak_bg_fill = inactive_bg_color;
-            visuals.widgets.hovered.weak_bg_fill = active_bg_color;
-            visuals.widgets.active.weak_bg_fill = active_bg_color;
-            visuals.selection.bg_fill = active_bg_color;
-            visuals.selection.stroke.color = visuals.widgets.active.fg_stroke.color;
-            visuals.widgets.hovered.fg_stroke.color = visuals.widgets.active.fg_stroke.color;
-
-            // Expansion would also show that they are 2 separate widgets
-            visuals.widgets.active.expansion = 0.0;
-            visuals.widgets.hovered.expansion = 0.0;
-
-            // Favicon, title and close button share ONE horizontal row (Zen's tab
-            // row). The default vertical content_ui stacked them, clipping the
-            // title and wrapping the close button onto its own line.
-            let mut tab_opt: Option<egui::Response> = None;
-            let mut close_clicked = false;
-            tab_frame.content_ui.horizontal(|ui| {
-                let tab = if compact_row {
-                    // Compact rows key on the favicon alone (Zen compact mode), falling
-                    // back to the first letter of the title when there is no favicon yet.
-                    match favicon_texture {
-                        Some(favicon) => ui
-                            .add(Button::selectable(
-                                active,
-                                egui::Image::from_texture(favicon)
-                                    .fit_to_exact_size(egui::vec2(16.0, 16.0))
-                                    .bg_fill(egui::Color32::TRANSPARENT),
-                            ))
-                            .on_hover_ui(|ui| {
-                                ui.label(&label);
-                            }),
-                        None => ui
-                            .add(Button::selectable(
-                                active,
-                                truncate_with_ellipsis(&label, 1),
-                            ))
-                            .on_hover_ui(|ui| {
-                                ui.label(&label);
-                            }),
-                    }
-                } else {
-                    if let Some(favicon) = favicon_texture {
-                        ui.add(
-                            egui::Image::from_texture(favicon)
-                                .fit_to_exact_size(egui::vec2(16.0, 16.0))
-                                .bg_fill(egui::Color32::TRANSPARENT),
-                        );
-                    }
-                    ui.add(Button::selectable(
-                        active,
-                        truncate_with_ellipsis(&label, 18),
-                    ))
-                    .on_hover_ui(|ui| {
-                        ui.label(&label);
-                    })
-                };
-
-                if !compact_row {
-                    let close_button =
-                        ui.add(egui::Button::new("X").fill(egui::Color32::TRANSPARENT));
-                    close_button.widget_info(|| {
-                        let mut info = WidgetInfo::new(WidgetType::Button);
-                        info.label = Some("Close".into());
-                        info
-                    });
-                    close_clicked = close_button.clicked() || close_button.middle_clicked();
-                }
-                tab_opt = Some(tab);
-            });
-            let tab = tab_opt.expect("tab row always renders");
-
-            if tab.secondary_clicked() {
-                // Right-click toggles the pinned state, as in Zen's essentials.
-                if pinned {
-                    pinned_tabs.remove(&webview.id());
-                } else {
-                    pinned_tabs.insert(webview.id());
-                }
-            } else if close_clicked || tab.middle_clicked() {
-                window
-                    .queue_user_interface_command(UserInterfaceCommand::CloseWebView(webview.id()));
-            } else if !active && tab.clicked() {
-                window.activate_webview(webview.id());
+        for points in paths {
+            for pair in points.windows(2) {
+                ui.painter().line_segment([
+                    origin + egui::vec2(pair[0].0,pair[0].1),
+                    origin + egui::vec2(pair[1].0,pair[1].1),
+                ],stroke);
             }
         }
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name));
+        response.on_hover_text(name)
+    }
 
-        let response = tab_frame.allocate_space(ui);
-        let fill_color = if active || response.hovered() {
-            active_bg_color
+    fn browser_tab_vertical(
+        ui: &mut egui::Ui, window: &ServoShellWindow, webview: WebView,
+        favicon_texture: Option<egui::load::SizedTexture>, compact: bool,
+        pinned: bool, pinned_tabs: &mut std::collections::HashSet<WebViewId>,
+    ) {
+        let label = webview.page_title().filter(|t| !t.is_empty())
+            .or_else(|| webview.url().map(|u| u.to_string())).unwrap_or("New tab".into());
+        let active = window.active_webview().map(|v|v.id()) == Some(webview.id());
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0),egui::Sense::click());
+        let fill = if active { ui.visuals().selection.bg_fill }
+            else if response.hovered() { ui.visuals().widgets.hovered.weak_bg_fill }
+            else { egui::Color32::TRANSPARENT };
+        ui.painter().rect_filled(rect,8,fill);
+        if active {
+            ui.painter().rect_filled(egui::Rect::from_min_size(rect.min+egui::vec2(0.,8.),egui::vec2(3.,20.)),2,egui::Color32::from_rgb(171,208,177));
+        }
+        let center = rect.min+egui::vec2(22.,18.);
+        if let Some(texture) = favicon_texture {
+            ui.painter().image(texture.id,egui::Rect::from_center_size(center,egui::vec2(16.,16.)),
+                egui::Rect::from_min_max(egui::pos2(0.,0.),egui::pos2(1.,1.)),egui::Color32::WHITE);
         } else {
-            inactive_bg_color
-        };
-        tab_frame.frame.fill = fill_color;
-        tab_frame.end(ui);
+            ui.painter().text(center,egui::Align2::CENTER_CENTER,truncate_with_ellipsis(&label,1),egui::FontId::proportional(14.),ui.visuals().text_color());
+        }
+        let compact = compact || pinned;
+        let mut close_clicked=false;
+        if !compact {
+            let font=egui::FontId::proportional(13.);
+            let text_color=if active {ui.visuals().text_color()} else {ui.visuals().weak_text_color()};
+            let galley=ui.painter().layout(label.clone(),font,text_color,(rect.width()-78.).max(20.));
+            // clip the title to a single line; full title remains in the tooltip.
+            ui.painter().with_clip_rect(egui::Rect::from_min_size(rect.min+egui::vec2(40.,8.),egui::vec2((rect.width()-78.).max(20.),20.)))
+                .galley(rect.min+egui::vec2(40.,9.),galley,text_color);
+            let close=egui::Rect::from_center_size(egui::pos2(rect.right()-16.,rect.center().y),egui::vec2(24.,28.));
+            let r=ui.interact(close,response.id.with("close"),egui::Sense::click());
+            if active || response.hovered() || r.hovered() {
+                let c=ui.visuals().weak_text_color(); let mid=close.center();
+                ui.painter().line_segment([mid+egui::vec2(-3.,-3.),mid+egui::vec2(3.,3.)],egui::Stroke::new(1.5,c));
+                ui.painter().line_segment([mid+egui::vec2(3.,-3.),mid+egui::vec2(-3.,3.)],egui::Stroke::new(1.5,c));
+            }
+            r.widget_info(||WidgetInfo::labeled(WidgetType::Button,true,"Close"));
+            close_clicked=r.clicked();
+        }
+        response.widget_info(||WidgetInfo::labeled(WidgetType::Button,true,&label));
+        if response.secondary_clicked() {
+            if pinned {pinned_tabs.remove(&webview.id());} else {pinned_tabs.insert(webview.id());}
+        } else if close_clicked || response.middle_clicked() {
+            window.queue_user_interface_command(UserInterfaceCommand::CloseWebView(webview.id()));
+        } else if response.clicked() && !active {window.activate_webview(webview.id());}
+        response.on_hover_text(label);
+        ui.add_space(4.);
     }
 
     /// Update the user interface, but do not paint the updated state.
@@ -760,321 +713,168 @@ impl Gui {
             // when not displaying the URL bar: https://github.com/servo/servo/issues/32443
             // Show toolbar unless fullscreen is from document (web API)
             if !headed_window.is_fullscreen_from_document() {
-                let frame = egui::Frame::default()
-                    .fill(ctx.style().visuals.window_fill)
-                    .inner_margin(4.0);
-                let toolbar_panel = Panel::top("toolbar").frame(frame).show_inside(ctx, |ui| {
-                    ui.allocate_ui_with_layout(
-                        ui.available_size(),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            let back_button =
-                                ui.add_enabled(*can_go_back, Gui::toolbar_button("⏴"));
-                            back_button.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
-                                info.label = Some("Back".into());
-                                info
-                            });
-                            if back_button.clicked() {
-                                *location_dirty = false;
-                                window.queue_user_interface_command(UserInterfaceCommand::Back);
-                            }
-
-                            let forward_button =
-                                ui.add_enabled(*can_go_forward, Gui::toolbar_button("⏵"));
-                            forward_button.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
-                                info.label = Some("Forward".into());
-                                info
-                            });
-                            if forward_button.clicked() {
-                                *location_dirty = false;
-                                window.queue_user_interface_command(UserInterfaceCommand::Forward);
-                            }
-
-                            match self.load_status {
-                                LoadStatus::Started | LoadStatus::HeadParsed => {
-                                    let stop_button = ui.add(Gui::toolbar_button("X"));
-                                    stop_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
-                                        info.label = Some("Stop".into());
-                                        info
-                                    });
-                                    if stop_button.clicked() {
-                                        warn!("Do not support stop yet.");
-                                    }
-                                },
-                                LoadStatus::Complete => {
-                                    let reload_button = ui.add(Gui::toolbar_button("↻"));
-                                    reload_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
-                                        info.label = Some("Reload".into());
-                                        info
-                                    });
-                                    if reload_button.clicked() {
-                                        *location_dirty = false;
-                                        window.queue_user_interface_command(
-                                            UserInterfaceCommand::Reload,
-                                        );
-                                    }
-                                },
-                            }
-                            // Zen-style centered location bar.
-                            let remaining_width = ui.available_width();
-                            let bar_width = (remaining_width * 0.5).clamp(120.0, 640.0);
-                            let side_space = ((remaining_width - bar_width) / 2.0).max(0.0);
-                            ui.add_space(side_space);
-
-                            let location_id = egui::Id::new("location_input");
-                            let location_field = ui.add_sized(
-                                egui::vec2(bar_width, ui.available_height()),
-                                egui::TextEdit::singleline(location)
-                                    .id(location_id)
-                                    .hint_text("Search or enter address"),
-                            );
-
-                            if location_field.changed() {
-                                *location_dirty = true;
-                            }
-                            // Handle adddress bar shortcut.
-                            if ui.input(|i| {
-                                if cfg!(target_os = "macos") {
-                                    i.clone().consume_key(Modifiers::COMMAND, Key::L)
-                                } else {
-                                    i.clone().consume_key(Modifiers::COMMAND, Key::L) ||
-                                        i.clone().consume_key(Modifiers::ALT, Key::D)
-                                }
-                            }) {
-                                // The focus request immediately makes gained_focus return true.
-                                location_field.request_focus();
-                            }
-                            // Select address bar text when it's focused (click or shortcut).
-                            if location_field.gained_focus() &&
-                                let Some(mut state) =
-                                    TextEditState::load(ui.ctx(), location_id)
-                            {
-                                // Select the whole input.
-                                state.cursor.set_char_range(Some(CCursorRange::two(
-                                    CCursor::new(0),
-                                    CCursor::new(location.len()),
-                                )));
-                                state.store(ui.ctx(), location_id);
-                            }
-                            // Navigate to address when enter is pressed in the address bar.
-                            if location_field.lost_focus() &&
-                                ui.input(|i| i.clone().key_pressed(Key::Enter))
-                            {
-                                window.queue_user_interface_command(
-                                    UserInterfaceCommand::Go(location.clone()),
-                                );
-                            }
-
-                            // Right-hand toolbar controls, placed flush right so the
-                            // location bar above stays centered.
-                            ui.add_space((side_space - 28.0).max(0.0));
-                            let mut experimental_preferences_enabled =
-                                state.experimental_preferences_enabled();
-                            let prefs_toggle = ui
-                                .toggle_value(&mut experimental_preferences_enabled, "☢")
-                                .on_hover_text("Enable experimental prefs");
-                            prefs_toggle.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
-                                info.label = Some("Enable experimental preferences".into());
-                                info.selected = Some(experimental_preferences_enabled);
-                                info
-                            });
-                            if prefs_toggle.clicked() {
-                                state.set_experimental_preferences_enabled(
-                                    experimental_preferences_enabled,
-                                );
-                                *location_dirty = false;
-                                window.queue_user_interface_command(
-                                    UserInterfaceCommand::ReloadAll,
-                                );
-                            }
-
-                            let settings_button = ui.add(Gui::toolbar_button("⚙"));
-                            settings_button.widget_info(|| {
-                                let mut info = WidgetInfo::new(WidgetType::Button);
-                                info.label = Some("Settings".into());
-                                info
-                            });
-                            if settings_button.clicked() {
-                                *settings_open = !*settings_open;
-                            }
-                        },
-                    );
+                // Original Argon workspace composition. Servo owns the content;
+                // this layer owns navigation and never overlays false page chrome.
+                let dark=settings.dark_theme;
+                let surface=if dark {egui::Color32::from_rgba_unmultiplied(22,25,28,210)} else {egui::Color32::from_rgba_unmultiplied(244,247,245,220)};
+                let rail=if dark {egui::Color32::from_rgba_unmultiplied(18,21,24,200)} else {egui::Color32::from_rgba_unmultiplied(235,240,237,214)};
+                let accent=egui::Color32::from_rgb(171,208,177);
+                ctx.style_mut(|style| {
+                    style.spacing.item_spacing=egui::vec2(4.,8.);
+                    style.visuals.window_fill=if dark {egui::Color32::from_rgba_unmultiplied(28,32,36,232)} else {egui::Color32::from_rgba_unmultiplied(245,248,246,238)};
+                    style.visuals.window_stroke=egui::Stroke::new(1.,egui::Color32::from_white_alpha(if dark {28} else {60}));
+                    style.visuals.window_corner_radius=16.into();
+                    style.visuals.widgets.inactive.corner_radius=8.into();
+                    style.visuals.widgets.hovered.corner_radius=8.into();
+                    style.spacing.button_padding=egui::vec2(12.,8.);
+                    style.visuals.selection.bg_fill=if dark {egui::Color32::from_rgb(41,50,44)} else {egui::Color32::from_rgb(207,226,210)};
+                    style.visuals.selection.stroke.color=style.visuals.text_color();
+                    style.visuals.widgets.hovered.weak_bg_fill=if dark {egui::Color32::from_rgb(39,41,44)} else {egui::Color32::from_rgb(218,222,219)};
                 });
-
-                *toolbar_height = Length::new(toolbar_panel.response.rect.max.y);
-
-                // Zen-style vertical tab sidebar on the left, with a compact mode
-                // that collapses it to a narrow icon strip.
-                let compact = *sidebar_compact;
-                let sidebar_builder = if compact {
-                    Panel::left("tab_sidebar")
-                        .resizable(false)
-                        .exact_size(52.0)
-                } else {
-                    Panel::left("tab_sidebar")
-                        .resizable(true)
-                        .default_size(220.0)
-                        .size_range(160.0..=320.0)
-                };
-                let sidebar_frame = egui::Frame::default()
-                    .fill(ctx.style().visuals.panel_fill)
-                    .inner_margin(4.0);
-                let sidebar = sidebar_builder
-                    .frame(sidebar_frame)
-                    .show_inside(ctx, |ui| {
-                        egui::ScrollArea::vertical()
-                            .scroll_bar_visibility(
-                                egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-                            )
-                            .show(ui, |ui| {
-                                let webviews = window.webviews();
-                                // Pinned tabs (Zen essentials) first, as compact rows,
-                                // then a separator, then the ordinary tabs.
-                                let mut any_pinned = false;
-                                for (id, webview) in &webviews {
-                                    if !pinned_tabs.contains(id) {
-                                        continue;
-                                    }
-                                    any_pinned = true;
-                                    let favicon = favicon_textures
-                                        .get(id)
-                                        .map(|(_, favicon)| favicon)
-                                        .copied();
-                                    Self::browser_tab_vertical(
-                                        ui,
-                                        window,
-                                        webview.clone(),
-                                        favicon,
-                                        true,
-                                        true,
-                                        pinned_tabs,
-                                    );
-                                }
-                                if any_pinned {
-                                    ui.separator();
-                                }
-                                for (id, webview) in webviews.into_iter() {
-                                    if pinned_tabs.contains(&id) {
-                                        continue;
-                                    }
-                                    let favicon = favicon_textures
-                                        .get(&id)
-                                        .map(|(_, favicon)| favicon)
-                                        .copied();
-                                    Self::browser_tab_vertical(
-                                        ui, window, webview, favicon, compact, false,
-                                        pinned_tabs,
-                                    );
-                                }
+                let compact=*sidebar_compact;
+                let rail_width=if compact {64.} else {248.};
+                let toolbar_panel=Panel::top("argon_navigation")
+                    .frame(egui::Frame::default().fill(surface).inner_margin(egui::Margin::symmetric(12,8)))
+                    .show_inside(ctx,|ui| {
+                        ui.set_height(40.);
+                        ui.horizontal_centered(|ui| {
+                            ui.allocate_ui(egui::vec2(rail_width-16.,36.),|ui| {
+                                ui.horizontal_centered(|ui| {
+                                    let (mark,_) = ui.allocate_exact_size(egui::vec2(24.,24.),egui::Sense::hover());
+                                    let p=ui.painter(); let c=mark.center();
+                                    p.line_segment([c+egui::vec2(-8.,7.),c+egui::vec2(0.,-8.)],egui::Stroke::new(2.,accent));
+                                    p.line_segment([c+egui::vec2(0.,-8.),c+egui::vec2(8.,7.)],egui::Stroke::new(2.,accent));
+                                    p.line_segment([c+egui::vec2(-4.,3.),c+egui::vec2(6.,3.)],egui::Stroke::new(2.,accent));
+                                    if !compact {ui.label(egui::RichText::new("Argon").size(18.).strong());}
+                                });
                             });
-
-                        // Controls pinned to the bottom of the sidebar, as in Zen.
-                        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                            ui.add_space(2.0);
+                            if Self::icon(ui,"Back",*can_go_back).clicked() && *can_go_back {
+                                *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Back);
+                            }
+                            if Self::icon(ui,"Forward",*can_go_forward).clicked() && *can_go_forward {
+                                *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Forward);
+                            }
+                            if Self::icon(ui,"Reload",true).clicked() {
+                                *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Reload);
+                            }
+                            ui.add_space(8.);
+                            let location_id=egui::Id::new("location_input");
+                            let width=(ui.available_width()-88.).max(120.);
+                            let field=ui.add_sized(egui::vec2(width,36.),egui::TextEdit::singleline(location)
+                                .id(location_id).font(egui::FontId::proportional(14.))
+                                .margin(egui::vec2(12.,8.)).hint_text("Search or enter address"));
+                            if field.changed() {*location_dirty=true;}
+                            if ui.input_mut(|i|i.consume_key(nav_modifiers,Key::L)||i.consume_key(Modifiers::ALT,Key::D)) {field.request_focus();}
+                            if field.gained_focus() && let Some(mut state)=TextEditState::load(ui.ctx(),location_id) {
+                                state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0),CCursor::new(location.len()))));state.store(ui.ctx(),location_id);
+                            }
+                            if field.lost_focus() && ui.input(|i|i.key_pressed(Key::Enter)) {
+                                window.queue_user_interface_command(UserInterfaceCommand::Go(location.clone()));
+                            }
+                            if Self::icon(ui,"Home",true).clicked() {
+                                *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Go(settings.homepage.clone()));
+                            }
+                            if Self::icon(ui,"Settings",true).clicked() {*settings_open=!*settings_open;}
+                        });
+                    });
+                *toolbar_height=Length::new(toolbar_panel.response.rect.max.y);
+                let sidebar=Panel::left("argon_workspace_rail").resizable(false).exact_size(rail_width)
+                    .frame(egui::Frame::default().fill(rail).inner_margin(egui::Margin::symmetric(12,12)))
+                    .show_inside(ctx,|ui| {
+                        if !compact {
                             ui.horizontal(|ui| {
-                                let new_tab_button = ui.add(Gui::toolbar_button("+"));
-                                new_tab_button.widget_info(|| {
-                                    let mut info = WidgetInfo::new(WidgetType::Button);
-                                    info.label = Some("New tab".into());
-                                    info
+                                ui.label(egui::RichText::new("Your tabs").size(12.).color(ui.visuals().weak_text_color()));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+                                    ui.label(egui::RichText::new(window.webviews().len().to_string()).size(12.).color(ui.visuals().weak_text_color()));
                                 });
-                                if new_tab_button.clicked() {
-                                    window.queue_user_interface_command(
-                                        UserInterfaceCommand::NewWebView,
-                                    );
+                            });
+                            ui.add_space(12.);
+                        }
+                        ui.horizontal(|ui| {
+                            if Self::icon(ui,"New tab",true).clicked() {window.queue_user_interface_command(UserInterfaceCommand::NewWebView);}
+                            if !compact && ui.add(egui::Button::new("New tab").frame(false)).clicked() {window.queue_user_interface_command(UserInterfaceCommand::NewWebView);}
+                        });
+                        ui.add_space(16.);
+                        let list_height=(ui.available_height()-88.).max(36.);
+                        egui::ScrollArea::vertical().max_height(list_height).show(ui,|ui| {
+                            for (id,view) in window.webviews() {
+                                if pinned_tabs.contains(&id) {
+                                    let favicon=favicon_textures.get(&id).map(|(_,f)|f).copied();
+                                    Self::browser_tab_vertical(ui,window,view,favicon,compact,true,pinned_tabs);
                                 }
-
+                            }
+                            if !pinned_tabs.is_empty() {ui.separator();ui.add_space(8.);}
+                            for (id,view) in window.webviews() {
+                                if !pinned_tabs.contains(&id) {
+                                    let favicon=favicon_textures.get(&id).map(|(_,f)|f).copied();
+                                    Self::browser_tab_vertical(ui,window,view,favicon,compact,false,pinned_tabs);
+                                }
+                            }
+                        });
+                        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT),|ui| {
+                            if !compact {ui.label(egui::RichText::new("Powered by Servo").size(11.).color(ui.visuals().weak_text_color()));ui.add_space(8.);}
+                            ui.horizontal(|ui| {
+                                let label=if compact {"Expand tab sidebar"} else {"Collapse tab sidebar"};
+                                if Self::icon(ui,label,true).clicked() {
+                                    *sidebar_compact=!*sidebar_compact;settings.sidebar_compact=*sidebar_compact;settings.save();
+                                }
                                 if !compact {
-                                    let new_window_button = ui.add(Gui::toolbar_button("⊞"));
-                                    new_window_button.widget_info(|| {
-                                        let mut info = WidgetInfo::new(WidgetType::Button);
-                                        info.label = Some("New window".into());
-                                        info
-                                    });
-                                    if new_window_button.clicked() {
-                                        let url = Url::parse("servo:newtab").expect("Should be able to unconditionally parse 'servo:newtab' as URL");
-                                        window.queue_user_interface_command(
-                                            UserInterfaceCommand::NewWindow(
-                                                TopLevelWebViewCreationRequest::WithUrl(url),
-                                            ),
-                                        );
+                                    if Self::icon(ui,"New window",true).clicked() {
+                                        let url=Url::parse("servo:newtab").expect("internal new-tab URL");
+                                        window.queue_user_interface_command(UserInterfaceCommand::NewWindow(TopLevelWebViewCreationRequest::WithUrl(url)));
                                     }
-                                }
-
-                                let compact_button = ui.add(Gui::toolbar_button(if compact {
-                                    "»"
-                                } else {
-                                    "«"
-                                }));
-                                compact_button.widget_info(|| {
-                                    let mut info = WidgetInfo::new(WidgetType::Button);
-                                    info.label = Some(
-                                        if compact {
-                                            "Expand tab sidebar"
-                                        } else {
-                                            "Collapse tab sidebar"
-                                        }
-                                        .into(),
-                                    );
-                                    info
-                                });
-                                if compact_button.clicked() {
-                                    *sidebar_compact = !compact;
                                 }
                             });
                         });
                     });
-
-                *sidebar_width = Length::new(sidebar.response.rect.max.x);
+                *sidebar_width=Length::new(sidebar.response.rect.max.x);
             } else {
                 *toolbar_height = Length::default();
                 *sidebar_width = Length::default();
             }
 
-            // Argon settings window. Every control applies immediately and
-            // persists to settings.json, so there is no unsaved/decorative state.
-            let mut open = *settings_open;
-            egui::Window::new("Settings")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(true)
-                .default_width(360.0)
-                .show(ctx, |ui| {
-                    let mut changed = false;
+            // A deliberate settings surface, not a loose stack of widgets.
+            let mut open=*settings_open;
+            egui::Window::new("Settings").open(&mut open).collapsible(false).resizable(false)
+                .default_width(480.).show(ctx,|ui| {
+                    ui.add_space(8.);
+                    ui.label(egui::RichText::new("Make room for your web").size(24.));
+                    ui.label(egui::RichText::new("Appearance and navigation").size(13.).color(ui.visuals().weak_text_color()));
+                    ui.add_space(24.);
+                    let mut changed=false;
+                    ui.label(egui::RichText::new("Appearance").size(14.).strong());
+                    ui.add_space(8.);
                     ui.horizontal(|ui| {
-                        ui.label("Theme:");
-                        changed |= ui
-                            .radio_value(&mut settings.dark_theme, true, "Dark (Zen)")
-                            .changed();
-                        changed |= ui
-                            .radio_value(&mut settings.dark_theme, false, "Light")
-                            .changed();
+                        changed|=ui.radio_value(&mut settings.dark_theme,true,"Dark (Zen)").changed();
+                        changed|=ui.radio_value(&mut settings.dark_theme,false,"Light").changed();
                     });
-                    ui.horizontal(|ui| {
-                        ui.label("Homepage:");
-                        changed |= ui
-                            .text_edit_singleline(&mut settings.homepage)
-                            .changed();
-                    });
-                    changed |= ui
-                        .checkbox(&mut settings.sidebar_compact, "Compact tab sidebar")
-                        .changed();
-                    if changed {
-                        ctx.set_theme(if settings.dark_theme {
-                            egui::Theme::Dark
-                        } else {
-                            egui::Theme::Light
-                        });
-                        *sidebar_compact = settings.sidebar_compact;
-                        settings.save();
+                    ui.add_space(12.);
+                    changed|=ui.checkbox(&mut settings.sidebar_compact,"Compact tab sidebar").changed();
+                    ui.label(egui::RichText::new("Keep more room for the page with an icon-width tab rail").size(12.).color(ui.visuals().weak_text_color()));
+                    ui.add_space(24.);ui.separator();ui.add_space(16.);
+                    ui.label(egui::RichText::new("Home address").size(14.).strong());
+                    ui.add_space(8.);
+                    changed|=ui.add_sized(egui::vec2(ui.available_width(),36.),egui::TextEdit::singleline(&mut settings.homepage).margin(egui::vec2(12.,8.))).changed();
+                    ui.label(egui::RichText::new("Opened by Home in the navigation bar and page menu").size(12.).color(ui.visuals().weak_text_color()));
+                    ui.add_space(24.);
+                    let mut experimental=state.experimental_preferences_enabled();
+                    if ui.checkbox(&mut experimental,"Experimental web features").changed() {
+                        state.set_experimental_preferences_enabled(experimental);
+                        *location_dirty=false;
+                        window.queue_user_interface_command(UserInterfaceCommand::ReloadAll);
                     }
+                    ui.add_space(16.);
+                    if changed {
+                        ctx.set_theme(if settings.dark_theme {egui::Theme::Dark} else {egui::Theme::Light});
+                        *sidebar_compact=settings.sidebar_compact;settings.save();
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("Saved on this device").size(12.).color(ui.visuals().weak_text_color()));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.hyperlink_to("Design credits","https://github.com/vio137/argon-windows/blob/main/NOTICES.md");});
+                    });
+                    ui.add_space(8.);
                 });
-            *settings_open = open;
+            *settings_open=open;
 
             // Chrome context menu: opened by a secondary click over the page
             // (intercepted in headed_window), floating above the webview.
