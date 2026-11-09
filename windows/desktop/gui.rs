@@ -531,6 +531,59 @@ impl Gui {
         context.run(winit_window, |ctx| {
             load_pending_favicons(ctx, window, favicon_textures);
 
+            // Chromium-style browser keyboard shortcuts, handled at the window level so
+            // they work regardless of which chrome widget has focus.
+            let nav_modifiers = if cfg!(target_os = "macos") {
+                Modifiers::COMMAND
+            } else {
+                Modifiers::CTRL
+            };
+            if ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::T)) {
+                window.queue_user_interface_command(UserInterfaceCommand::NewWebView);
+            }
+            if ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::R)) {
+                *location_dirty = false;
+                window.queue_user_interface_command(UserInterfaceCommand::Reload);
+            }
+            if let Some(active) = window.active_webview() &&
+                ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::W))
+            {
+                window
+                    .queue_user_interface_command(UserInterfaceCommand::CloseWebView(active.id()));
+            }
+            // Tab switching: Ctrl+Tab / Ctrl+Shift+Tab cycle, Ctrl+1..=8 jump by index.
+            let tab_count = window.webviews().len();
+            if tab_count > 1 {
+                if let Some(active_index) = window.get_active_webview_index() {
+                    if ctx
+                        .input_mut(|i| i.consume_key(nav_modifiers | Modifiers::SHIFT, Key::Tab))
+                    {
+                        window.activate_webview_by_index(
+                            (active_index + tab_count - 1) % tab_count,
+                        );
+                    } else if ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::Tab)) {
+                        window.activate_webview_by_index((active_index + 1) % tab_count);
+                    }
+                }
+                let number_keys = [
+                    Key::Num1,
+                    Key::Num2,
+                    Key::Num3,
+                    Key::Num4,
+                    Key::Num5,
+                    Key::Num6,
+                    Key::Num7,
+                    Key::Num8,
+                ];
+                for (index, key) in number_keys.into_iter().enumerate() {
+                    if index < tab_count &&
+                        ctx.input_mut(|i| i.consume_key(nav_modifiers, key))
+                    {
+                        window.activate_webview_by_index(index);
+                    }
+                }
+            }
+
             // TODO: While in fullscreen add some way to mitigate the increased phishing risk
             // when not displaying the URL bar: https://github.com/servo/servo/issues/32443
             // Show toolbar unless fullscreen is from document (web API)
