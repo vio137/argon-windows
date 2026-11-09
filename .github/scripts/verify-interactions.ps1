@@ -90,6 +90,9 @@ function Capture($name) {
 try {
  Start-Argon
  Write-Host 'JS gate: actual document.title mutation observed'
+ Click-Element (Find-Named 'Save page')
+ $saved=(Get-Content $config -Raw|ConvertFrom-Json).saved_pages
+ if ($saved.Count -ne 1 -or $saved[0].url -ne $url) { throw 'Explicit saved page did not persist' }
  Click-Element (Find-Named 'Settings')
  Click-Element (Find-Named 'Light')
  if (-not (Test-Path $config)) {
@@ -145,7 +148,11 @@ try {
  Stop-Process -Id $script:proc.Id -Force
  Start-Argon
  if ((Get-Content $config -Raw|ConvertFrom-Json).sidebar_compact -ne $true) { throw 'Settings lost across restart' }
- Capture 'argon-settings-restarted.png'
+ $saved=(Get-Content $config -Raw|ConvertFrom-Json).saved_pages
+ if ($saved.Count -ne 1 -or $saved[0].url -ne $url) { throw 'Saved page lost after restart' }
+ Click-Element (Find-Named 'Remove saved page')
+ if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Saved page removal did not persist' }
+ Capture 'argon-settings-restarted.png' 
  # Open the page menu using a physical secondary click within the app frame.
  $r=$script:root.Current.BoundingRectangle
  [ArgonInteraction]::SetCursorPos([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2))|Out-Null
