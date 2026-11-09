@@ -48,7 +48,7 @@ jobs:
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
             public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
           }
-'@
+          '@
           Set-Location dist
           $proc = Start-Process -FilePath (Join-Path $PWD 'argon.exe') -PassThru
           # Wait up to 60s for a main window with a non-empty title.
