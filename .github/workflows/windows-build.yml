@@ -84,11 +84,24 @@ jobs:
           Copy-Item -Recurse (Join-Path $checkout.FullName 'resources') (Join-Path 'target/package' 'resources')
           Compress-Archive -Path target/package/* -DestinationPath argon-windows-x64.zip -Force
 
+      # Upload the distribution zip BEFORE the smoke gate: if the gate fails,
+      # the compiled package survives for the dispatch-only package-release
+      # workflow to iterate on without a full recompile.
+      - name: Upload distribution zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-windows-x64
+          path: windows/argon-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
       # Runtime verification gate: extract the distribution zip into a clean
       # directory outside the repo and launch the packaged engine headless,
       # rendering a page to a screenshot. A crash or nonzero exit fails the
       # build, so the nightly only publishes for a package that actually
-      # starts and renders with only the files inside the zip.
+      # starts and renders with only the files inside the zip. All output is
+      # preserved: echoed to the log, copied back as an artifact, and written
+      # to the step summary on failure.
       - name: Smoke test packaged zip (headless render, clean dir)
         shell: pwsh
         run: |
@@ -96,26 +109,31 @@ jobs:
           if (Test-Path $clean) { Remove-Item -Recurse -Force $clean }
           New-Item -ItemType Directory -Force $clean | Out-Null
           Expand-Archive -Path windows/argon-windows-x64.zip -DestinationPath $clean
+          $log = Join-Path $clean 'smoke-output.txt'
           Set-Location $clean
-          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>"
-          if ($LASTEXITCODE -ne 0) { Write-Error "packaged headless launch failed with exit $LASTEXITCODE"; exit $LASTEXITCODE }
-          if (Test-Path smoke.png) { Write-Host "smoke.png written: $((Get-Item smoke.png).Length) bytes" } else { Write-Warning "no screenshot produced" }
-          Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke.png') -ErrorAction SilentlyContinue
+          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>" *> $log
+          $code = $LASTEXITCODE
+          Copy-Item $log (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke-output.txt') -ErrorAction SilentlyContinue
+          Get-Content $log
+          if ($code -ne 0) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "## Smoke test failed (exit $code)"
+            Add-Content $env:GITHUB_STEP_SUMMARY '```text'
+            Add-Content $env:GITHUB_STEP_SUMMARY (Get-Content $log -Raw)
+            Add-Content $env:GITHUB_STEP_SUMMARY '```'
+            Write-Error "packaged headless launch failed with exit $code"
+            exit $code
+          }
+          if (Test-Path smoke.png) { Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke.png'); Write-Host "smoke.png written" } else { Write-Warning "no screenshot produced" }
 
-      - name: Upload smoke screenshot
+      - name: Upload smoke diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: argon-smoke-screenshot
-          path: windows/smoke.png
+          name: argon-smoke-diagnostics
+          path: |
+            windows/smoke.png
+            windows/smoke-output.txt
           if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload distribution zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: argon-windows-x64
-          path: windows/argon-windows-x64.zip
-          if-no-files-found: error
           retention-days: 14
 
   release:
