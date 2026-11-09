@@ -577,18 +577,26 @@ impl Gui {
                     .map(|home| std::path::PathBuf::from(home).join("Pictures").join("Argon"))
                     .unwrap_or_else(|| std::path::PathBuf::from("."));
                 active.take_screenshot(None, move |image| {
-                    if let Ok(image) = image {
-                        if fs::create_dir_all(&dir).is_ok() {
-                            let stamp = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|duration| duration.as_secs())
-                                .unwrap_or(0);
-                            let path = dir.join(format!("argon-{stamp}.png"));
-                            if let Err(error) = image::DynamicImage::ImageRgba8(image).save(&path)
-                            {
-                                warn!("Failed to save page screenshot: {error}.");
+                    match image {
+                        Ok(image) => {
+                            match fs::create_dir_all(&dir) {
+                                Ok(()) => {
+                                    let stamp = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|duration| duration.as_secs())
+                                        .unwrap_or(0);
+                                    let path = dir.join(format!("argon-{stamp}.png"));
+                                    match image::DynamicImage::ImageRgba8(image).save(&path) {
+                                        Ok(()) => info!("Saved page screenshot to {path:?}"),
+                                        Err(error) =>
+                                            warn!("Failed to save page screenshot: {error}."),
+                                    }
+                                },
+                                Err(error) =>
+                                    warn!("Could not create screenshot directory: {error}."),
                             }
-                        }
+                        },
+                        Err(error) => warn!("Page screenshot capture failed: {error:?}."),
                     }
                 });
             }

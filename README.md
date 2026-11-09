@@ -12,12 +12,13 @@ per-feature tier list.
 
 ## Status
 
-Early development. The CI pipeline compiles the browser, packages it with
-its engine resources, and smoke-tests the packaged zip (headless launch +
-page render in a clean directory) before publishing a **nightly
-pre-release**. The nightly is verified to start and render pages headless;
-the full headed interface has not yet been verified on a live Windows
-desktop session.
+Early development; no release has been published yet. The CI pipeline is
+designed to compile the browser, package it with its engine resources, and
+smoke-test the packaged zip (headless launch + page render in a clean
+directory) before publishing a **nightly pre-release** - a nightly appears
+only after that gate passes. Headless start-and-render is the only runtime
+check in CI; the full headed interface has not been verified on a live
+Windows desktop session.
 
 ## Download and run
 

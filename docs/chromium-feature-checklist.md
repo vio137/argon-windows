@@ -17,7 +17,7 @@ Grounded against the Servo embedder API at our pin
 - [ ] Bookmarks (sidebar section, folders) - local storage, no engine dependency
 - [ ] Browsing history UI - shell-side navigation log (engine exposes no
       enumeration API; `WebView::clear_session_history` exists)
-- [x] Pinned tabs / essential tabs (Zen-style) - right-click a tab to pin, favicon rows on top
+- [x] Pinned tabs / essential tabs (Zen-style) - implemented (right-click a tab to pin, favicon rows on top); compiled, not runtime-verified
 - [ ] Workspaces (Zen spaces) - tab grouping in `RunningAppState`
 - [x] Keyboard shortcut map (Ctrl+T/W/L/R, Alt+D, F5 reload, Esc revert urlbar, Ctrl+Tab/Shift+Tab, Ctrl+1-8) - shell input routing
 - [ ] Find-in-page UI - **blocked on engine API**: v0.7.0 exposes no
@@ -26,7 +26,7 @@ Grounded against the Servo embedder API at our pin
       stylesheet per page); quality will differ from Chromium's distilled mode
 - [ ] User scripts / styles (cosmetic filtering, per-site darkening) -
       `user_content_manager.add_script` / `add_stylesheet` exist
-- [x] Screenshots of pages - Ctrl+Shift+S saves the page PNG via `WebView::take_screenshot`
+- [ ] Screenshots of pages - Ctrl+Shift+S implemented locally via `WebView::take_screenshot`; not yet compiled or verified
 - [ ] Page JavaScript evaluation hooks - `WebView::evaluate_javascript`
 
 ## Tier B - needs Servo engine work (feasible, larger effort, maybe upstream)
