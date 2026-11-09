@@ -72,6 +72,8 @@ struct ArgonSettings {
     homepage: String,
     /// Start with the tab sidebar in compact (icon-strip) mode.
     sidebar_compact: bool,
+    /// Explicitly saved pages only. Browsing history is not collected.
+    saved_pages: Vec<(String, String)>,
 }
 
 impl Default for ArgonSettings {
@@ -80,6 +82,7 @@ impl Default for ArgonSettings {
             dark_theme: true,
             homepage: "https://servo.org".into(),
             sidebar_compact: false,
+            saved_pages: Vec::new(),
         }
     }
 }
@@ -111,7 +114,24 @@ impl ArgonSettings {
         if let Some(compact) = value.get("sidebar_compact").and_then(|v| v.as_bool()) {
             settings.sidebar_compact = compact;
         }
+        if let Some(pages) = value.get("saved_pages").and_then(|v|v.as_array()) {
+            for page in pages.iter().take(200) {
+                if let (Some(url),Some(title)) = (page.get("url").and_then(|v|v.as_str()),page.get("title").and_then(|v|v.as_str())) {
+                    if Url::parse(url).is_ok() && !settings.saved_pages.iter().any(|(u,_)|u==url) {
+                        settings.saved_pages.push((url.to_owned(), title.chars().take(200).collect()));
+                    }
+                }
+            }
+        }
         settings
+    }
+
+    fn toggle_saved_page(&mut self, url: String, title: String) {
+        if let Some(index)=self.saved_pages.iter().position(|(u,_)|u==&url) {
+            self.saved_pages.remove(index);
+        } else if self.saved_pages.len()<200 && Url::parse(&url).is_ok() {
+            self.saved_pages.push((url,title.chars().take(200).collect()));
+        }
     }
 
     fn save(&self) {
@@ -128,6 +148,7 @@ impl ArgonSettings {
             "dark_theme": self.dark_theme,
             "homepage": self.homepage,
             "sidebar_compact": self.sidebar_compact,
+            "saved_pages": self.saved_pages.iter().map(|(url,title)|serde_json::json!({"url":url,"title":title})).collect::<Vec<_>>(),
         });
         if let Err(error) = std::fs::write(&path, json.to_string()) {
             warn!("Could not save Argon settings: {error}.");
@@ -452,6 +473,15 @@ impl Gui {
         });
     }
 
+    pub(crate) fn toggle_saved_page(&mut self, webview: &WebView) {
+        if let Some(url)=webview.url() {
+            let title=webview.page_title().filter(|t|!t.is_empty()).unwrap_or_else(||url.to_string());
+            self.settings.toggle_saved_page(url.to_string(),title);
+            self.settings.save();
+            self.context.egui_ctx.request_repaint();
+        }
+    }
+
     /// Open the chrome context menu at the given window position, in response to
     /// a secondary click over the webview (intercepted in `headed_window`).
     pub(crate) fn open_context_menu(&mut self, position: Point2D<f32, DeviceIndependentPixel>) {
@@ -514,6 +544,7 @@ impl Gui {
             "Reload" => &[&[(14.,7.),(12.,3.),(7.,2.),(3.,5.),(2.,10.),(5.,14.),(10.,16.),(14.,13.)],&[(10.,7.),(15.,7.),(15.,2.)]],
             "New tab" => &[&[(3.,9.),(15.,9.)],&[(9.,3.),(9.,15.)]],
             "Close" => &[&[(5.,5.),(13.,13.)],&[(13.,5.),(5.,13.)]],
+            "Save page" | "Remove saved page" => &[&[(4.,2.),(14.,2.),(14.,16.),(9.,12.),(4.,16.),(4.,2.)]],
             "Home" => &[&[(2.,8.),(9.,2.),(16.,8.)],&[(4.,7.),(4.,16.),(14.,16.),(14.,7.)]],
             "Settings" => &[&[(2.,4.),(16.,4.)],&[(2.,9.),(16.,9.)],&[(2.,14.),(16.,14.)],&[(6.,2.),(6.,6.)],&[(12.,7.),(12.,11.)],&[(7.,12.),(7.,16.)]],
             "Collapse tab sidebar" => &[&[(11.,4.),(6.,9.),(11.,14.)]],
@@ -625,6 +656,10 @@ impl Gui {
             } else {
                 Modifiers::CTRL
             };
+            if ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::D)) && let Some(view)=window.active_webview() && let Some(url)=view.url() {
+                settings.toggle_saved_page(url.to_string(),view.page_title().unwrap_or_else(||url.to_string()));
+                settings.save();
+            }
             if ctx.input_mut(|i| i.consume_key(nav_modifiers, Key::T)) {
                 window.queue_user_interface_command(UserInterfaceCommand::NewWebView);
             }
@@ -770,7 +805,7 @@ impl Gui {
                             }
                             ui.add_space(8.);
                             let location_id=egui::Id::new("location_input");
-                            let width=(ui.available_width()-88.).max(120.);
+                            let width=(ui.available_width()-124.).max(100.);
                             let field=ui.add_sized(egui::vec2(width,36.),egui::TextEdit::singleline(location)
                                 .id(location_id).font(egui::FontId::proportional(14.))
                                 .margin(egui::vec2(12.,8.)).hint_text("Search or enter address"));
@@ -781,6 +816,13 @@ impl Gui {
                             }
                             if field.lost_focus() && ui.input(|i|i.key_pressed(Key::Enter)) {
                                 window.queue_user_interface_command(UserInterfaceCommand::Go(location.clone()));
+                            }
+                            if let Some(view)=window.active_webview() && let Some(url)=view.url() {
+                                let saved=settings.saved_pages.iter().any(|(u,_)|u==url.as_str());
+                                let name=if saved {"Remove saved page"} else {"Save page"};
+                                if Self::icon(ui,name,true).clicked() {
+                                    settings.toggle_saved_page(url.to_string(),view.page_title().unwrap_or_else(||url.to_string()));settings.save();
+                                }
                             }
                             if Self::icon(ui,"Home",true).clicked() {
                                 *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Go(settings.homepage.clone()));
@@ -808,6 +850,20 @@ impl Gui {
                         ui.add_space(16.);
                         let list_height=(ui.available_height()-88.).max(36.);
                         egui::ScrollArea::vertical().max_height(list_height).show(ui,|ui| {
+                            if !settings.saved_pages.is_empty() {
+                                if !compact { ui.label(egui::RichText::new("Saved pages").size(12.).color(ui.visuals().weak_text_color())); }
+                                let mut remove=None;
+                                for (index,(url,title)) in settings.saved_pages.iter().enumerate() {
+                                    let display=if title.is_empty() {url} else {title};
+                                    let text=if compact {truncate_with_ellipsis(display,1)} else {truncate_with_ellipsis(display,24)};
+                                    let response=ui.add_sized(egui::vec2(ui.available_width(),32.),egui::Button::new(text).frame(false)).on_hover_text(format!("{display}\n{url}\nRight-click to remove"));
+                                    response.widget_info(||WidgetInfo::labeled(WidgetType::Button,true,format!("Open saved page: {display}")));
+                                    if response.clicked() { *location_dirty=false;window.queue_user_interface_command(UserInterfaceCommand::Go(url.clone())); }
+                                    if response.secondary_clicked() {remove=Some(index);}
+                                }
+                                if let Some(index)=remove {settings.saved_pages.remove(index);settings.save();}
+                                ui.separator();ui.add_space(8.);
+                            }
                             for (id,view) in window.webviews() {
                                 if pinned_tabs.contains(&id) {
                                     let favicon=favicon_textures.get(&id).map(|(_,f)|f).copied();
@@ -1219,5 +1275,20 @@ fn load_pending_favicons(
         // We don't need the handle anymore but we can't drop it either since that would cause
         // the texture to be freed.
         texture_cache.insert(id, (handle, texture));
+    }
+}
+
+#[cfg(test)]
+mod saved_pages_tests {
+    use super::ArgonSettings;
+    #[test]
+    fn saved_page_toggle_is_explicit_and_deduplicates() {
+        let mut settings=ArgonSettings::default();
+        settings.toggle_saved_page("https://example.org/".into(),"Example".into());
+        assert_eq!(settings.saved_pages.len(),1);
+        settings.toggle_saved_page("https://example.org/".into(),"Example".into());
+        assert!(settings.saved_pages.is_empty());
+        settings.toggle_saved_page("not a URL".into(),"Invalid".into());
+        assert!(settings.saved_pages.is_empty());
     }
 }

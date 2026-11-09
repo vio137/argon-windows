@@ -360,6 +360,10 @@ impl HeadedWindow {
 
         let mut handled = true;
         ShortcutMatcher::from_event(key_event.event.clone())
+            .shortcut(CMD_OR_CONTROL, 'D', || {
+                self.gui.borrow_mut().toggle_saved_page(&active_webview);
+                self.winit_window.request_redraw();
+            })
             .shortcut(CMD_OR_CONTROL, 'W', || {
                 window.close_webview(active_webview.id());
             })
