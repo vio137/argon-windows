@@ -135,6 +135,7 @@ jobs:
       # pre-media packages (no gstlibav.dll). Audio is NOT asserted here: the
       # sample has no audio track and the runner has no audio device.
       - name: Media playback assertion (local mp4, headed)
+        if: always()
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
@@ -258,6 +259,7 @@ jobs:
       # the actual watch-page behavior of the current build so reports to the
       # user describe observed reality, not assumptions.
       - name: YouTube watch-page behavior capture (non-fatal)
+        if: always()
         continue-on-error: true
         shell: pwsh
         run: |

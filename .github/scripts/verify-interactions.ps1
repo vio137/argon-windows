@@ -43,6 +43,8 @@ function Find-Named($name) {
  }
  $all = $script:root.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
  $all | ForEach-Object { "$($_.Current.Name) | $($_.Current.ControlType.ProgrammaticName)" } | Set-Content "$work/interaction-tree.txt"
+ Capture 'argon-settings-failure.png'
+ Get-Content "$work/interaction-tree.txt" | Write-Host
  throw "Named accessibility control missing: $name"
 }
 function Click-Element($e) {
