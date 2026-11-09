@@ -200,9 +200,13 @@ try {
  $savedButton=Find-Named 'Open saved page: Argon JS OK'
  $b=$savedButton.Current.BoundingRectangle
  [ArgonInteraction]::SetCursorPos([int]($b.X+$b.Width/2),[int]($b.Y+$b.Height/2))|Out-Null
+ Start-Sleep -Milliseconds 400
+ Write-Host "Saved sidebar target bounds: $($b.X),$($b.Y) $($b.Width)x$($b.Height)"
  [ArgonInteraction]::mouse_event(8,0,0,0,[UIntPtr]::Zero)
+ Start-Sleep -Milliseconds 100
  [ArgonInteraction]::mouse_event(16,0,0,0,[UIntPtr]::Zero)
  Start-Sleep 1
+ Capture 'argon-settings-saved-after-secondary.png'
  if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Sidebar right-click removal did not persist' }
  Write-Host 'Saved-page gates passed: toolbar save, restart persistence, toolbar removal, page Ctrl+D, sidebar reopen and right-click removal'
  Write-Host 'Interaction gates passed: JS execution, theme and compact settings persistence across restart, homepage editing and Home navigation, right-click menu and Copy address' 
