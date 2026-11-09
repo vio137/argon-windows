@@ -73,6 +73,10 @@ pub struct Gui {
     /// Whether the tab sidebar is collapsed to a compact strip (Zen-style compact mode).
     sidebar_compact: bool,
 
+    /// Zen-style pinned tabs ("essentials"): shown as favicon-only rows at the top of the
+    /// tab sidebar. Chrome-level state, not persisted across restarts yet.
+    pinned_tabs: std::collections::HashSet<WebViewId>,
+
     location: String,
 
     /// Whether the location has been edited by the user without clicking Go.
@@ -323,6 +327,7 @@ impl Gui {
             toolbar_height: Default::default(),
             sidebar_width: Default::default(),
             sidebar_compact: false,
+            pinned_tabs: Default::default(),
             location: initial_url.to_string(),
             location_dirty: false,
             load_status: LoadStatus::Complete,
@@ -394,6 +399,8 @@ impl Gui {
         webview: WebView,
         favicon_texture: Option<egui::load::SizedTexture>,
         compact: bool,
+        pinned: bool,
+        pinned_tabs: &mut std::collections::HashSet<WebViewId>,
     ) {
         let label = match (webview.page_title(), webview.url()) {
             (Some(title), _) if !title.is_empty() => title,
@@ -405,6 +412,8 @@ impl Gui {
         let active_bg_color = ui.visuals().widgets.active.weak_bg_fill;
         let active = window.active_webview().map(|webview| webview.id()) == Some(webview.id());
         let full_width = ui.available_width();
+        // Pinned tabs (Zen essentials) always render as favicon-only rows.
+        let compact_row = compact || pinned;
 
         // Setup a tab frame that will contain the favicon, title and close button
         let mut tab_frame = egui::Frame::NONE.corner_radius(7).begin(ui);
@@ -430,7 +439,7 @@ impl Gui {
             visuals.widgets.active.expansion = 0.0;
             visuals.widgets.hovered.expansion = 0.0;
 
-            let tab = if compact {
+            let tab = if compact_row {
                 // Compact rows key on the favicon alone (Zen compact mode), falling
                 // back to the first letter of the title when there is no favicon yet.
                 match favicon_texture {
@@ -475,7 +484,7 @@ impl Gui {
             };
 
             let mut close_clicked = false;
-            if !compact {
+            if !compact_row {
                 let close_button = tab_frame
                     .content_ui
                     .add(egui::Button::new("X").fill(egui::Color32::TRANSPARENT));
@@ -487,7 +496,14 @@ impl Gui {
                 close_clicked = close_button.clicked() || close_button.middle_clicked();
             }
 
-            if close_clicked || tab.middle_clicked() {
+            if tab.secondary_clicked() {
+                // Right-click toggles the pinned state, as in Zen's essentials.
+                if pinned {
+                    pinned_tabs.remove(&webview.id());
+                } else {
+                    pinned_tabs.insert(webview.id());
+                }
+            } else if close_clicked || tab.middle_clicked() {
                 window
                     .queue_user_interface_command(UserInterfaceCommand::CloseWebView(webview.id()));
             } else if !active && tab.clicked() {
@@ -521,6 +537,7 @@ impl Gui {
             toolbar_height,
             sidebar_width,
             sidebar_compact,
+            pinned_tabs,
             location,
             location_dirty,
             favicon_textures,
@@ -750,13 +767,43 @@ impl Gui {
                                 egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
                             )
                             .show(ui, |ui| {
-                                for (id, webview) in window.webviews().into_iter() {
+                                let webviews = window.webviews();
+                                // Pinned tabs (Zen essentials) first, as compact rows,
+                                // then a separator, then the ordinary tabs.
+                                let mut any_pinned = false;
+                                for (id, webview) in &webviews {
+                                    if !pinned_tabs.contains(id) {
+                                        continue;
+                                    }
+                                    any_pinned = true;
+                                    let favicon = favicon_textures
+                                        .get(id)
+                                        .map(|(_, favicon)| favicon)
+                                        .copied();
+                                    Self::browser_tab_vertical(
+                                        ui,
+                                        window,
+                                        webview.clone(),
+                                        favicon,
+                                        true,
+                                        true,
+                                        pinned_tabs,
+                                    );
+                                }
+                                if any_pinned {
+                                    ui.separator();
+                                }
+                                for (id, webview) in webviews.into_iter() {
+                                    if pinned_tabs.contains(&id) {
+                                        continue;
+                                    }
                                     let favicon = favicon_textures
                                         .get(&id)
                                         .map(|(_, favicon)| favicon)
                                         .copied();
                                     Self::browser_tab_vertical(
-                                        ui, window, webview, favicon, compact,
+                                        ui, window, webview, favicon, compact, false,
+                                        pinned_tabs,
                                     );
                                 }
                             });
