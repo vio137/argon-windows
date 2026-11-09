@@ -235,8 +235,18 @@ try {
  [System.Windows.Forms.SendKeys]::SendWait('^d')
  Start-Sleep 1
  if (@((Get-Content $config -Raw|ConvertFrom-Json).saved_pages).Count -ne 0) { throw 'Chrome-focused Ctrl+D did not remove exactly once' }
+ [System.Windows.Forms.SendKeys]::SendWait('%d')
+ Start-Sleep 1
+ $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+ if ($focused.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) { throw 'Alt+D did not focus address edit' }
+ [System.Windows.Forms.SendKeys]::SendWait('^a')
+ [System.Windows.Forms.SendKeys]::SendWait('about:blank')
+ [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ Start-Sleep 3
+ $script:proc.Refresh()
+ if ($script:proc.MainWindowTitle -like 'Argon JS OK*') { throw 'Address Enter did not navigate away from the test page' }
  Capture 'argon-settings-keyboard-address.png'
- Write-Host 'Keyboard gates passed: page Ctrl+T/new tab, Ctrl+W/return, Ctrl+L/address focus, chrome Ctrl+D toggle'
+ Write-Host 'Keyboard gates passed: page Ctrl+T/new tab, Ctrl+W/return, Ctrl+L/address focus, chrome Ctrl+D toggle, Alt+D focus and address Enter navigation'
  Write-Host 'Saved-page gates passed: toolbar save, restart persistence, toolbar removal, page Ctrl+D, sidebar reopen and right-click removal'
  Write-Host 'Interaction gates passed: JS execution, theme and compact settings persistence across restart, homepage editing and Home navigation, right-click menu and Copy address' 
 } finally {
