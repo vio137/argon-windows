@@ -17,6 +17,10 @@ on:
         description: 'Optional raw native output run to overlay on the base distribution for packaging recovery'
         required: false
         default: ''
+      package_run_id:
+        description: 'Optional exact package-release candidate assets run for final-copy verification'
+        required: false
+        default: ''
       build_run_id:
         description: 'Optional exact windows-build run artifact to inspect instead of any public release'
         required: false
@@ -31,8 +35,17 @@ jobs:
       # Needed for windows/tests/media (the local mp4 playback assertion page).
       - uses: actions/checkout@v4
 
+      - name: Download exact final packaged candidate assets
+        if: inputs.package_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-candidate-assets
+          path: artifact-in
+          run-id: ${{ inputs.package_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download exact candidate build artifact
-        if: inputs.build_run_id != ''
+        if: inputs.build_run_id != '' && inputs.package_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: argon-windows-x64
@@ -41,7 +54,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Expand exact candidate build artifact
-        if: inputs.build_run_id != ''
+        if: inputs.build_run_id != '' || inputs.package_run_id != ''
         shell: pwsh
         run: |
           $zip=Get-ChildItem artifact-in -Filter *.zip | Select-Object -First 1
@@ -51,7 +64,7 @@ jobs:
           Expand-Archive argon-nightly.zip -DestinationPath dist
 
       - name: Download published nightly distribution zip
-        if: inputs.build_run_id == ''
+        if: inputs.build_run_id == '' && inputs.package_run_id == ''
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://github.com/vio137/argon-windows/releases/download/${{ inputs.release_tag }}/argon-windows-x64.zip" -OutFile argon-nightly.zip
