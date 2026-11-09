@@ -27,3 +27,10 @@ Sokolovsky** (https://github.com/heydamir/unslop), licensed CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). Adapted for a native Rust/egui
 browser. Reference artwork is not included. Design changes and validation
 notes are in `docs/design/argon-workspace.md`.
+
+## Windows acrylic composition
+
+window-vibrancy 0.8.1 by Tauri Programme within The Commons Conservancy,
+https://github.com/tauri-apps/window-vibrancy . Licensed under Apache-2.0 OR MIT.
+Native Windows acrylic is requested through this library; support depends on
+Windows version and composition settings.

@@ -1043,6 +1043,10 @@ impl Gui {
         self.rendering_context
             .parent_context()
             .prepare_for_rendering();
+        // Translucent chrome must blend against a fresh transparent target,
+        // never the previous frame. The background callback repaints Servo's
+        // own opaque page region after this clear.
+        egui_glow::clear(self.context.painter.gl(), window.inner_size().into(), [0., 0., 0., 0.]);
         self.context.paint(window);
         self.rendering_context.parent_context().present();
     }
