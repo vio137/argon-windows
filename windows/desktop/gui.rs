@@ -568,6 +568,20 @@ impl Gui {
                 window
                     .queue_user_interface_command(UserInterfaceCommand::CloseWebView(active.id()));
             }
+            // F5 reloads (Chromium parity; Ctrl+R is handled above).
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) {
+                *location_dirty = false;
+                window.queue_user_interface_command(UserInterfaceCommand::Reload);
+            }
+            // Escape reverts an in-progress address bar edit to the current URL.
+            if *location_dirty && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                *location_dirty = false;
+                if let Some(active) = window.active_webview() {
+                    if let Some(url) = active.url() {
+                        *location = url.to_string();
+                    }
+                }
+            }
             // Tab switching: Ctrl+Tab / Ctrl+Shift+Tab cycle, Ctrl+1..=8 jump by index.
             let tab_count = window.webviews().len();
             if tab_count > 1 {

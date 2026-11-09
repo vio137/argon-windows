@@ -65,24 +65,42 @@ jobs:
         working-directory: windows
         run: cargo build --profile release
 
-      # Runtime verification gate: launch the freshly built engine headless,
-      # render a page, and save a screenshot. A crash or nonzero exit fails
-      # the build, so the nightly release is only published for binaries that
-      # actually start and render.
-      - name: Smoke test argon.exe (headless render)
-        working-directory: windows
-        shell: pwsh
-        run: |
-          $exe = "target/release/argon.exe"
-          if (-not (Test-Path $exe)) { Write-Error "argon.exe missing"; exit 1 }
-          & $exe --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>"
-          if ($LASTEXITCODE -ne 0) { Write-Error "headless launch failed with exit $LASTEXITCODE"; exit $LASTEXITCODE }
-          if (Test-Path smoke.png) { Write-Host "smoke.png written: $((Get-Item smoke.png).Length) bytes" } else { Write-Warning "no screenshot produced" }
-
       - name: List packaged runtime files
         working-directory: windows
         shell: pwsh
         run: Get-ChildItem target/release -File | Where-Object { $_.Extension -in '.exe','.dll' } | Select-Object Name,Length | Format-Table -AutoSize
+
+      # Distribution layout: exe + DLLs + Servo's engine resources (internal
+      # pages, resource protocol handlers) taken from the cargo git checkout.
+      - name: Package for distribution
+        working-directory: windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/package | Out-Null
+          Copy-Item target/release/argon.exe target/package/
+          Get-ChildItem target/release/*.dll -ErrorAction SilentlyContinue | Copy-Item -Destination target/package/
+          $checkout = Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts" -Directory -Filter 'servo-*' | ForEach-Object { Get-ChildItem $_.FullName -Directory } | Where-Object { Test-Path (Join-Path $_.FullName 'resources') } | Select-Object -First 1
+          if (-not $checkout) { Write-Error 'Servo resources checkout not found'; exit 1 }
+          Copy-Item -Recurse (Join-Path $checkout.FullName 'resources') (Join-Path 'target/package' 'resources')
+          Compress-Archive -Path target/package/* -DestinationPath argon-windows-x64.zip -Force
+
+      # Runtime verification gate: extract the distribution zip into a clean
+      # directory outside the repo and launch the packaged engine headless,
+      # rendering a page to a screenshot. A crash or nonzero exit fails the
+      # build, so the nightly only publishes for a package that actually
+      # starts and renders with only the files inside the zip.
+      - name: Smoke test packaged zip (headless render, clean dir)
+        shell: pwsh
+        run: |
+          $clean = Join-Path $env:RUNNER_TEMP 'argon-clean'
+          if (Test-Path $clean) { Remove-Item -Recurse -Force $clean }
+          New-Item -ItemType Directory -Force $clean | Out-Null
+          Expand-Archive -Path windows/argon-windows-x64.zip -DestinationPath $clean
+          Set-Location $clean
+          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>"
+          if ($LASTEXITCODE -ne 0) { Write-Error "packaged headless launch failed with exit $LASTEXITCODE"; exit $LASTEXITCODE }
+          if (Test-Path smoke.png) { Write-Host "smoke.png written: $((Get-Item smoke.png).Length) bytes" } else { Write-Warning "no screenshot produced" }
+          Copy-Item smoke.png (Join-Path $env:GITHUB_WORKSPACE 'windows/smoke.png') -ErrorAction SilentlyContinue
 
       - name: Upload smoke screenshot
         uses: actions/upload-artifact@v4
@@ -92,13 +110,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload argon.exe
+      - name: Upload distribution zip
         uses: actions/upload-artifact@v4
         with:
           name: argon-windows-x64
-          path: |
-            windows/target/release/argon.exe
-            windows/target/release/*.dll
+          path: windows/argon-windows-x64.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -110,15 +126,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download argon.exe artifact
+      - name: Download distribution zip
         uses: actions/download-artifact@v4
         with:
           name: argon-windows-x64
           path: dist
-
-      - name: Package zip
-        shell: pwsh
-        run: Compress-Archive -Path dist\* -DestinationPath argon-windows-x64.zip -Force
 
       - name: Update nightly release
         uses: softprops/action-gh-release@v2
@@ -126,4 +138,4 @@ jobs:
           tag_name: nightly
           name: Argon nightly (Windows x64)
           prerelease: true
-          files: argon-windows-x64.zip
+          files: dist/argon-windows-x64.zip

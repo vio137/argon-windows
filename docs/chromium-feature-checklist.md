@@ -19,7 +19,7 @@ Grounded against the Servo embedder API at our pin
       enumeration API; `WebView::clear_session_history` exists)
 - [ ] Pinned tabs / essential tabs (Zen-style) - `RunningAppState` + sidebar
 - [ ] Workspaces (Zen spaces) - tab grouping in `RunningAppState`
-- [ ] Keyboard shortcut map (Ctrl+T/W/L/R, tab switching) - shell input routing
+- [x] Keyboard shortcut map (Ctrl+T/W/L/R, Alt+D, F5 reload, Esc revert urlbar, Ctrl+Tab/Shift+Tab, Ctrl+1-8) - shell input routing
 - [ ] Find-in-page UI - **blocked on engine API**: v0.7.0 exposes no
       find-in-page on `WebView`; track upstream or patch `components/servo`
 - [ ] Reader mode - feasible via `user_content_manager` (inject reader script +
