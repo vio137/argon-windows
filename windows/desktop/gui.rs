@@ -722,7 +722,7 @@ impl Gui {
                 let surface=if dark {egui::Color32::from_rgba_unmultiplied(22,25,28,210)} else {egui::Color32::from_rgba_unmultiplied(244,247,245,220)};
                 let rail=if dark {egui::Color32::from_rgba_unmultiplied(18,21,24,200)} else {egui::Color32::from_rgba_unmultiplied(235,240,237,214)};
                 let accent=egui::Color32::from_rgb(171,208,177);
-                ctx.all_styles_mut(|style| {
+                ctx.ctx().all_styles_mut(|style| {
                     style.spacing.item_spacing=egui::vec2(4.,8.);
                     style.visuals.window_fill=if dark {egui::Color32::from_rgba_unmultiplied(28,32,36,232)} else {egui::Color32::from_rgba_unmultiplied(245,248,246,238)};
                     style.visuals.window_stroke=egui::Stroke::new(1.,egui::Color32::from_white_alpha(if dark {28} else {60}));
