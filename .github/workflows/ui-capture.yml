@@ -3,15 +3,11 @@ name: ui-capture
 # Dispatch-only: launches a packaged Argon build HEADED on the runner's
 # interactive session and captures ONLY the Argon window (never the full
 # desktop, logs or anything else on screen). Produces the first real image of
-# the Zen-style chrome for verification. No recompilation - reuses the exact
-# CI-built artifact from a finished windows-build run.
+# the Zen-style chrome for verification. No recompilation - captures the exact
+# published nightly distribution zip that users download (ANGLE DLLs included).
 
 on:
   workflow_dispatch:
-    inputs:
-      run_id:
-        description: 'windows-build run ID to capture (its argon-windows-x64 artifact)'
-        required: true
 
 jobs:
   capture:
@@ -19,20 +15,11 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 30
     steps:
-      - name: Download compiled artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: argon-windows-x64
-          path: dist
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch Servo v0.7.0 engine resources
+      - name: Download published nightly distribution zip
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri 'https://codeload.github.com/servo/servo/zip/refs/tags/v0.7.0' -OutFile servo-src.zip
-          Expand-Archive servo-src.zip -DestinationPath servo-src
-          Copy-Item -Recurse servo-src/servo-0.7.0/resources dist/resources
+          Invoke-WebRequest -Uri 'https://github.com/vio137/argon-windows/releases/download/nightly/argon-windows-x64.zip' -OutFile argon-nightly.zip
+          Expand-Archive argon-nightly.zip -DestinationPath dist
 
       - name: Launch Argon headed and capture its window only
         shell: pwsh
@@ -49,8 +36,11 @@ jobs:
             public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
           }
           '@
-          Set-Location dist
-          $proc = Start-Process -FilePath (Join-Path $PWD 'argon.exe') -PassThru
+          $exe = Get-ChildItem -Path dist -Recurse -Filter argon.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error 'argon.exe not found inside the nightly zip'; exit 1 }
+          Write-Host "launching $($exe.FullName)"
+          Set-Location $exe.DirectoryName
+          $proc = Start-Process -FilePath $exe.FullName -PassThru
           # Wait up to 60s for a main window with a non-empty title.
           $hwnd = [IntPtr]::Zero
           for ($i = 0; $i -lt 60; $i++) {
