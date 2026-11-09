@@ -11,6 +11,11 @@ on:
       - '.github/workflows/windows-build.yml'
   workflow_dispatch:
 
+# A newer push supersedes older in-progress builds of the same branch.
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RUST_BACKTRACE: 1
 
@@ -59,6 +64,33 @@ jobs:
       - name: Build argon (release)
         working-directory: windows
         run: cargo build --profile release
+
+      # Runtime verification gate: launch the freshly built engine headless,
+      # render a page, and save a screenshot. A crash or nonzero exit fails
+      # the build, so the nightly release is only published for binaries that
+      # actually start and render.
+      - name: Smoke test argon.exe (headless render)
+        working-directory: windows
+        shell: pwsh
+        run: |
+          $exe = "target/release/argon.exe"
+          if (-not (Test-Path $exe)) { Write-Error "argon.exe missing"; exit 1 }
+          & $exe --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>"
+          if ($LASTEXITCODE -ne 0) { Write-Error "headless launch failed with exit $LASTEXITCODE"; exit $LASTEXITCODE }
+          if (Test-Path smoke.png) { Write-Host "smoke.png written: $((Get-Item smoke.png).Length) bytes" } else { Write-Warning "no screenshot produced" }
+
+      - name: List packaged runtime files
+        working-directory: windows
+        shell: pwsh
+        run: Get-ChildItem target/release -File | Where-Object { $_.Extension -in '.exe','.dll' } | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload smoke screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: argon-smoke-screenshot
+          path: windows/smoke.png
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload argon.exe
         uses: actions/upload-artifact@v4
