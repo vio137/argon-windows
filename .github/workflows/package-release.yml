@@ -37,6 +37,29 @@ jobs:
           Expand-Archive servo-src.zip -DestinationPath servo-src
           Copy-Item -Recurse servo-src/servo-0.7.0/resources dist/resources
 
+      # argon.exe was built by plain `cargo build`, which leaves the ANGLE
+      # DLLs (libEGL/libGLESv2, built by the mozangle crate) inside the cargo
+      # build tree instead of next to the exe; without them the exe panics
+      # with "egl function was not loaded" even for software rendering.
+      # Take the exact-version-matched DLLs from Servo's official v0.7.0
+      # Windows zip (same mozangle source), pinned by its published sha256.
+      - name: Add matching ANGLE DLLs from Servo v0.7.0 official build
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri 'https://github.com/servo/servo/releases/download/v0.7.0/servo-x86_64-windows-msvc.zip' -OutFile servo-win.zip
+          $hash = (Get-FileHash servo-win.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '49d4b2c2d3576f93fad70812ee9e42820f5b84da9103f2a633838109a2fcde53') {
+            Write-Error "servo v0.7.0 zip hash mismatch: $hash"
+            exit 1
+          }
+          Expand-Archive servo-win.zip -DestinationPath servo-win
+          foreach ($dll in 'libEGL.dll', 'libGLESv2.dll') {
+            $src = Get-ChildItem -Recurse servo-win -Filter $dll | Select-Object -First 1
+            if (-not $src) { Write-Error "$dll not found in servo v0.7.0 zip"; exit 1 }
+            Copy-Item $src.FullName dist/
+          }
+          Get-ChildItem dist -Filter *.dll | Select-Object Name, Length
+
       - name: Create distribution zip
         shell: pwsh
         run: Compress-Archive -Path dist/* -DestinationPath argon-windows-x64.zip -Force
