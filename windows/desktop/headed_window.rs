@@ -274,6 +274,17 @@ impl HeadedWindow {
             return;
         }
 
+        if button == MouseButton::Right && action == ElementState::Pressed {
+            // Secondary click over the page opens Argon's chrome context menu
+            // (Back/Forward/Reload/Copy address/New tab/Home/Settings) instead of
+            // being forwarded to the page. Page contextmenu handlers are not
+            // consulted yet - the chrome menu always wins for now.
+            if let Some(position) = self.last_mouse_position.get() {
+                self.gui.borrow_mut().open_context_menu(position);
+            }
+            return;
+        }
+
         let mouse_button = match &button {
             MouseButton::Left => ServoMouseButton::Primary,
             MouseButton::Right => ServoMouseButton::Secondary,

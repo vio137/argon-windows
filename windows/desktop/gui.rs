@@ -60,6 +60,80 @@ use crate::desktop::headed_window;
 use crate::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::window::{ServoShellWindow, TopLevelWebViewCreationRequest};
 
+/// Argon chrome settings, persisted as JSON in the user's config directory so
+/// choices survive restarts. Every control in the settings window applies and
+/// saves immediately - no decorative, unsaved state.
+#[derive(Clone)]
+struct ArgonSettings {
+    /// Zen's signature dark chrome (true) or the light variant (false).
+    dark_theme: bool,
+    /// URL opened by the Home action (toolbar context menu).
+    homepage: String,
+    /// Start with the tab sidebar in compact (icon-strip) mode.
+    sidebar_compact: bool,
+}
+
+impl Default for ArgonSettings {
+    fn default() -> Self {
+        Self {
+            dark_theme: true,
+            homepage: "https://servo.org".into(),
+            sidebar_compact: false,
+        }
+    }
+}
+
+impl ArgonSettings {
+    fn path() -> Option<std::path::PathBuf> {
+        dirs::config_dir().map(|dir| dir.join("argon").join("settings.json"))
+    }
+
+    fn load() -> Self {
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Self::default();
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return Self::default();
+        };
+        let mut settings = Self::default();
+        if let Some(dark) = value.get("dark_theme").and_then(|v| v.as_bool()) {
+            settings.dark_theme = dark;
+        }
+        if let Some(homepage) = value.get("homepage").and_then(|v| v.as_str()) &&
+            !homepage.is_empty()
+        {
+            settings.homepage = homepage.to_string();
+        }
+        if let Some(compact) = value.get("sidebar_compact").and_then(|v| v.as_bool()) {
+            settings.sidebar_compact = compact;
+        }
+        settings
+    }
+
+    fn save(&self) {
+        let Some(path) = Self::path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() &&
+            let Err(error) = std::fs::create_dir_all(parent)
+        {
+            warn!("Could not create Argon settings directory: {error}.");
+            return;
+        }
+        let json = serde_json::json!({
+            "dark_theme": self.dark_theme,
+            "homepage": self.homepage,
+            "sidebar_compact": self.sidebar_compact,
+        });
+        if let Err(error) = std::fs::write(&path, json.to_string()) {
+            warn!("Could not save Argon settings: {error}.");
+        }
+    }
+}
+
 /// The user interface of a headed servoshell. Currently this is implemented via
 /// egui.
 pub struct Gui {
@@ -76,6 +150,15 @@ pub struct Gui {
     /// Zen-style pinned tabs ("essentials"): shown as favicon-only rows at the top of the
     /// tab sidebar. Chrome-level state, not persisted across restarts yet.
     pinned_tabs: std::collections::HashSet<WebViewId>,
+
+    /// Argon chrome settings (persisted); edited in the settings window.
+    settings: ArgonSettings,
+
+    /// Whether the settings window is open.
+    settings_open: bool,
+
+    /// Position for the webview context menu (window coordinates), when open.
+    context_menu_pos: Option<egui::Pos2>,
 
     location: String,
 
@@ -311,8 +394,13 @@ impl Gui {
 
         winit_window.set_visible(true);
 
-        // Zen's chrome is dark by default; start there rather than the system theme.
-        context.egui_ctx.set_theme(egui::Theme::Dark);
+        // Apply the persisted theme choice (Zen dark is the default).
+        let settings = ArgonSettings::load();
+        context.egui_ctx.set_theme(if settings.dark_theme {
+            egui::Theme::Dark
+        } else {
+            egui::Theme::Light
+        });
 
         context.egui_ctx.options_mut(|options| {
             // Disable the builtin egui handlers for the Ctrl+Plus, Ctrl+Minus and Ctrl+0
@@ -329,7 +417,10 @@ impl Gui {
             context,
             toolbar_height: Default::default(),
             sidebar_width: Default::default(),
-            sidebar_compact: false,
+            sidebar_compact: settings.sidebar_compact,
+            settings,
+            settings_open: false,
+            context_menu_pos: None,
             pinned_tabs: Default::default(),
             location: initial_url.to_string(),
             location_dirty: false,
@@ -354,6 +445,13 @@ impl Gui {
                 memory.surrender_focus(focused);
             }
         });
+    }
+
+    /// Open the chrome context menu at the given window position, in response to
+    /// a secondary click over the webview (intercepted in `headed_window`).
+    pub(crate) fn open_context_menu(&mut self, position: Point2D<f32, DeviceIndependentPixel>) {
+        self.context_menu_pos = Some(egui::pos2(position.x, position.y));
+        self.context.egui_ctx.request_repaint();
     }
 
     pub(crate) fn on_window_event(
@@ -547,6 +645,11 @@ impl Gui {
             location,
             location_dirty,
             favicon_textures,
+            settings,
+            settings_open,
+            context_menu_pos,
+            can_go_back,
+            can_go_forward,
             ..
         } = self;
 
@@ -666,7 +769,7 @@ impl Gui {
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
                             let back_button =
-                                ui.add_enabled(self.can_go_back, Gui::toolbar_button("⏴"));
+                                ui.add_enabled(*can_go_back, Gui::toolbar_button("⏴"));
                             back_button.widget_info(|| {
                                 let mut info = WidgetInfo::new(WidgetType::Button);
                                 info.label = Some("Back".into());
@@ -678,7 +781,7 @@ impl Gui {
                             }
 
                             let forward_button =
-                                ui.add_enabled(self.can_go_forward, Gui::toolbar_button("⏵"));
+                                ui.add_enabled(*can_go_forward, Gui::toolbar_button("⏵"));
                             forward_button.widget_info(|| {
                                 let mut info = WidgetInfo::new(WidgetType::Button);
                                 info.label = Some("Forward".into());
@@ -788,6 +891,16 @@ impl Gui {
                                 window.queue_user_interface_command(
                                     UserInterfaceCommand::ReloadAll,
                                 );
+                            }
+
+                            let settings_button = ui.add(Gui::toolbar_button("⚙"));
+                            settings_button.widget_info(|| {
+                                let mut info = WidgetInfo::new(WidgetType::Button);
+                                info.label = Some("Settings".into());
+                                info
+                            });
+                            if settings_button.clicked() {
+                                *settings_open = !*settings_open;
                             }
                         },
                     );
@@ -921,6 +1034,120 @@ impl Gui {
             } else {
                 *toolbar_height = Length::default();
                 *sidebar_width = Length::default();
+            }
+
+            // Argon settings window. Every control applies immediately and
+            // persists to settings.json, so there is no unsaved/decorative state.
+            let mut open = *settings_open;
+            egui::Window::new("Settings")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .default_width(360.0)
+                .show(ctx, |ui| {
+                    let mut changed = false;
+                    ui.horizontal(|ui| {
+                        ui.label("Theme:");
+                        changed |= ui
+                            .radio_value(&mut settings.dark_theme, true, "Dark (Zen)")
+                            .changed();
+                        changed |= ui
+                            .radio_value(&mut settings.dark_theme, false, "Light")
+                            .changed();
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Homepage:");
+                        changed |= ui
+                            .text_edit_singleline(&mut settings.homepage)
+                            .changed();
+                    });
+                    changed |= ui
+                        .checkbox(&mut settings.sidebar_compact, "Compact tab sidebar")
+                        .changed();
+                    if changed {
+                        ctx.set_theme(if settings.dark_theme {
+                            egui::Theme::Dark
+                        } else {
+                            egui::Theme::Light
+                        });
+                        *sidebar_compact = settings.sidebar_compact;
+                        settings.save();
+                    }
+                });
+            *settings_open = open;
+
+            // Chrome context menu: opened by a secondary click over the page
+            // (intercepted in headed_window), floating above the webview.
+            if let Some(pos) = *context_menu_pos {
+                let mut keep_open = true;
+                let area = egui::Area::new(egui::Id::new("webview_context_menu"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(pos)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_width(180.0);
+                            if ui
+                                .add_enabled(*can_go_back, egui::Button::new("Back"))
+                                .clicked()
+                            {
+                                *location_dirty = false;
+                                window.queue_user_interface_command(UserInterfaceCommand::Back);
+                                keep_open = false;
+                            }
+                            if ui
+                                .add_enabled(*can_go_forward, egui::Button::new("Forward"))
+                                .clicked()
+                            {
+                                *location_dirty = false;
+                                window.queue_user_interface_command(
+                                    UserInterfaceCommand::Forward,
+                                );
+                                keep_open = false;
+                            }
+                            if ui.button("Reload").clicked() {
+                                *location_dirty = false;
+                                window.queue_user_interface_command(UserInterfaceCommand::Reload);
+                                keep_open = false;
+                            }
+                            ui.separator();
+                            if ui.button("Copy address").clicked() {
+                                if let Some(active) = window.active_webview() &&
+                                    let Some(url) = active.url()
+                                {
+                                    ctx.copy_text(url.to_string());
+                                }
+                                keep_open = false;
+                            }
+                            if ui.button("New tab").clicked() {
+                                window.queue_user_interface_command(
+                                    UserInterfaceCommand::NewWebView,
+                                );
+                                keep_open = false;
+                            }
+                            ui.separator();
+                            if ui.button("Home").clicked() {
+                                *location_dirty = false;
+                                window.queue_user_interface_command(UserInterfaceCommand::Go(
+                                    settings.homepage.clone(),
+                                ));
+                                keep_open = false;
+                            }
+                            if ui.button("Settings").clicked() {
+                                *settings_open = true;
+                                keep_open = false;
+                            }
+                        });
+                    });
+                // Clicking anywhere outside the popup dismisses it.
+                if ctx.input(|i| i.pointer.any_pressed()) &&
+                    let Some(pointer) = ctx.input(|i| i.pointer.interact_pos()) &&
+                    !area.response.rect.contains(pointer)
+                {
+                    keep_open = false;
+                }
+                if !keep_open {
+                    *context_menu_pos = None;
+                }
             }
 
             let scale =

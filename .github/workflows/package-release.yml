@@ -96,7 +96,7 @@ jobs:
           New-Item -ItemType Directory -Force $clean | Out-Null
           Expand-Archive -Path argon-windows-x64.zip -DestinationPath $clean
           Set-Location $clean
-          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1></body></html>" *> smoke-output.txt
+          & (Join-Path $clean 'argon.exe') --headless --exit --output smoke.png "data:text/html,<html><head><title>Argon smoke</title></head><body style='background:%23112'><h1 style='color:%23eee;font-family:sans-serif'>Argon smoke test</h1><h2 id='js' style='color:%234a5;font-family:sans-serif'>JS pending</h2><script>document.getElementById('js').textContent='Argon JS OK';document.title='Argon JS OK'</script></body></html>" *> smoke-output.txt
           $code = $LASTEXITCODE
           Get-Content smoke-output.txt
           Copy-Item smoke-output.txt (Join-Path $env:GITHUB_WORKSPACE 'smoke-output.txt')
