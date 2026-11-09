@@ -8,7 +8,7 @@ use egui::{
     Area, Button, CornerRadius, Frame, Id, Modal, Order, RichText, Sense, Stroke, Vec2, pos2,
 };
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog, Filter};
-use euclid::Length;
+use euclid::Point2D;
 use log::{error, warn};
 use servo::{
     AlertDialog, AuthenticationRequest, BluetoothDeviceSelectionRequest, ColorPicker,
@@ -45,16 +45,16 @@ pub enum Dialog {
     },
     SelectElement {
         maybe_prompt: Option<SelectElement>,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     },
     ColorPicker {
         current_color: egui::Color32,
         maybe_prompt: Option<ColorPicker>,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     },
     ContextMenu {
         menu: Option<ContextMenu>,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     },
 }
 
@@ -118,17 +118,17 @@ impl Dialog {
 
     pub fn new_select_element_dialog(
         prompt: SelectElement,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     ) -> Self {
         Dialog::SelectElement {
             maybe_prompt: Some(prompt),
-            toolbar_offset,
+            chrome_offset,
         }
     }
 
     pub fn new_color_picker_dialog(
         prompt: ColorPicker,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     ) -> Self {
         let current_color = prompt
             .current_color()
@@ -137,7 +137,7 @@ impl Dialog {
         Dialog::ColorPicker {
             current_color,
             maybe_prompt: Some(prompt),
-            toolbar_offset,
+            chrome_offset,
         }
     }
 
@@ -466,7 +466,7 @@ impl Dialog {
             },
             Dialog::SelectElement {
                 maybe_prompt,
-                toolbar_offset,
+                chrome_offset,
             } => {
                 let Some(prompt) = maybe_prompt else {
                     // Prompt was dismissed, so the dialog should be closed too.
@@ -475,8 +475,10 @@ impl Dialog {
                 let mut is_open = true;
 
                 let mut position = prompt.position();
-                position.min.y += toolbar_offset.0 as i32;
-                position.max.y += toolbar_offset.0 as i32;
+                position.min.x += chrome_offset.x as i32;
+                position.max.x += chrome_offset.x as i32;
+                position.min.y += chrome_offset.y as i32;
+                position.max.y += chrome_offset.y as i32;
                 let area = egui::Area::new(egui::Id::new("select-window"))
                     .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
 
@@ -590,7 +592,7 @@ impl Dialog {
             Dialog::ColorPicker {
                 current_color,
                 maybe_prompt,
-                toolbar_offset,
+                chrome_offset,
             } => {
                 let Some(prompt) = maybe_prompt else {
                     // Prompt was dismissed, so the dialog should be closed too.
@@ -599,8 +601,10 @@ impl Dialog {
                 let mut is_open = true;
 
                 let mut position = prompt.position();
-                position.min.y += toolbar_offset.0 as i32;
-                position.max.y += toolbar_offset.0 as i32;
+                position.min.x += chrome_offset.x as i32;
+                position.max.x += chrome_offset.x as i32;
+                position.min.y += chrome_offset.y as i32;
+                position.max.y += chrome_offset.y as i32;
                 let area = egui::Area::new(egui::Id::new("select-window"))
                     .fixed_pos(egui::pos2(position.min.x as f32, position.max.y as f32));
 
@@ -642,14 +646,16 @@ impl Dialog {
             },
             Dialog::ContextMenu {
                 menu,
-                toolbar_offset,
+                chrome_offset,
             } => {
                 let mut is_open = true;
                 if let Some(context_menu) = menu {
                     let mut selected_action = None;
                     let mut position = context_menu.position();
-                    position.min.y += toolbar_offset.0 as i32;
-                    position.max.y += toolbar_offset.0 as i32;
+                    position.min.x += chrome_offset.x as i32;
+                    position.max.x += chrome_offset.x as i32;
+                    position.min.y += chrome_offset.y as i32;
+                    position.max.y += chrome_offset.y as i32;
 
                     let response = Area::new(Id::new("context_menu"))
                         .fixed_pos(pos2(position.min.x as f32, position.min.y as f32))
@@ -743,11 +749,11 @@ impl Dialog {
 
     pub(crate) fn new_context_menu(
         menu: ContextMenu,
-        toolbar_offset: Length<f32, DeviceIndependentPixel>,
+        chrome_offset: Point2D<f32, DeviceIndependentPixel>,
     ) -> Dialog {
         Dialog::ContextMenu {
             menu: Some(menu),
-            toolbar_offset,
+            chrome_offset,
         }
     }
 }

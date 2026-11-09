@@ -298,7 +298,9 @@ impl HeadedWindow {
     /// Helper function to handle mouse move events.
     fn handle_mouse_move_event(&self, webview: &WebView, position: PhysicalPosition<f64>) {
         let mut point = winit_position_to_euclid_point(position).to_f32();
-        point.y -= (self.toolbar_height() * self.hidpi_scale_factor()).0;
+        let chrome_offset = self.gui.borrow().chrome_offset() * self.hidpi_scale_factor();
+        point.x -= chrome_offset.x;
+        point.y -= chrome_offset.y;
 
         let previous_point = self.webview_relative_mouse_point.get();
         self.webview_relative_mouse_point.set(point);
@@ -442,11 +444,12 @@ impl HeadedWindow {
         self.visible_input_method.set(Some(control_id));
 
         let position = input_method.position();
+        let chrome_offset = self.gui.borrow().chrome_offset();
         self.winit_window.set_ime_allowed(true);
         self.winit_window.set_ime_cursor_area(
             LogicalPosition::new(
-                position.min.x,
-                position.min.y + (self.toolbar_height().0 as i32),
+                position.min.x + (chrome_offset.x as i32),
+                position.min.y + (chrome_offset.y as i32),
             ),
             LogicalSize::new(
                 position.max.x - position.min.x,
@@ -501,10 +504,6 @@ impl HeadedWindow {
         dialogs.contains_key(&webview_id)
     }
 
-    fn toolbar_height(&self) -> Length<f32, DeviceIndependentPixel> {
-        self.gui.borrow().toolbar_height()
-    }
-
     pub(crate) fn handle_winit_window_event(
         &self,
         state: Rc<RunningAppState>,
@@ -546,7 +545,7 @@ impl HeadedWindow {
             // Otherwise, if the cursor is over the egui interface, forward the event.
             self.last_mouse_position
                 .get()
-                .is_none_or(|point| self.gui.borrow().is_in_egui_toolbar_rect(point))
+                .is_none_or(|point| self.gui.borrow().is_in_egui_chrome_rect(point))
         };
 
         // Handle the event
@@ -796,7 +795,8 @@ impl PlatformWindow for HeadedWindow {
 
     fn screen_geometry(&self) -> ScreenGeometry {
         let hidpi_factor = self.hidpi_scale_factor();
-        let toolbar_size = Size2D::new(0.0, (self.toolbar_height() * self.hidpi_scale_factor()).0);
+        let chrome_offset = self.gui.borrow().chrome_offset() * hidpi_factor;
+        let toolbar_size = Size2D::new(chrome_offset.x, chrome_offset.y);
         let screen_size = self.screen_size.to_f32() * hidpi_factor;
 
         // FIXME: In reality, this should subtract screen space used by the system interface
@@ -1064,7 +1064,7 @@ impl PlatformWindow for HeadedWindow {
             EmbedderControl::SelectElement(prompt) => {
                 // FIXME: Reading the toolbar height is needed here to properly position the select dialog.
                 // But if the toolbar height changes while the dialog is open then the position won't be updated
-                let offset = self.gui.borrow().toolbar_height();
+                let offset = self.gui.borrow().chrome_offset();
                 self.add_dialog(
                     webview_id,
                     Dialog::new_select_element_dialog(prompt, offset),
@@ -1073,7 +1073,7 @@ impl PlatformWindow for HeadedWindow {
             EmbedderControl::ColorPicker(color_picker) => {
                 // FIXME: Reading the toolbar height is needed here to properly position the select dialog.
                 // But if the toolbar height changes while the dialog is open then the position won't be updated
-                let offset = self.gui.borrow().toolbar_height();
+                let offset = self.gui.borrow().chrome_offset();
                 self.add_dialog(
                     webview_id,
                     Dialog::new_color_picker_dialog(color_picker, offset),
@@ -1089,7 +1089,7 @@ impl PlatformWindow for HeadedWindow {
                 self.add_dialog(webview_id, Dialog::new_simple_dialog(simple_dialog));
             },
             EmbedderControl::ContextMenu(prompt) => {
-                let offset = self.gui.borrow().toolbar_height();
+                let offset = self.gui.borrow().chrome_offset();
                 self.add_dialog(webview_id, Dialog::new_context_menu(prompt, offset));
             },
         }
