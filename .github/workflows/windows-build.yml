@@ -69,3 +69,29 @@ jobs:
             windows/target/release/*.dll
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish nightly pre-release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build.result == 'success'
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Download argon.exe artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: argon-windows-x64
+          path: dist
+
+      - name: Package zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath argon-windows-x64.zip -Force
+
+      - name: Update nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Argon nightly (Windows x64)
+          prerelease: true
+          files: argon-windows-x64.zip
