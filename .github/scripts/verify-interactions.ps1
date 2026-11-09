@@ -111,12 +111,17 @@ try {
   }
  }
  if (-not $homepageEdit) { throw 'Homepage edit control not identified by current value' }
- Click-Element $homepageEdit
- [System.Windows.Forms.SendKeys]::SendWait('^a')
- [System.Windows.Forms.SendKeys]::SendWait('about:blank')
- [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+ # SetValue uses the actual accessible edit, avoiding a foreground race
+ # where SendKeys can type into the runner console instead of Argon.
+ $valuePattern=$homepageEdit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+ $valuePattern.SetValue('about:blank')
  Start-Sleep 1
- if ((Get-Content $config -Raw|ConvertFrom-Json).homepage -ne 'about:blank') { throw 'Homepage edit did not persist' }
+ if ((Get-Content $config -Raw|ConvertFrom-Json).homepage -ne 'about:blank') {
+  Capture 'argon-settings-homepage-failure.png'
+  Write-Host (Get-Content $config -Raw)
+  Write-Host "Edit accessible value: $($valuePattern.Current.Value)"
+  throw 'Homepage edit did not persist'
+ }
  Capture 'argon-settings-compact.png' 
  Stop-Process -Id $script:proc.Id -Force
  Start-Argon
