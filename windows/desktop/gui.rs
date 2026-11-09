@@ -211,6 +211,9 @@ pub struct Gui {
 }
 
 fn truncate_with_ellipsis(input: &str, max_length: usize) -> String {
+    if max_length <= 1 {
+        return input.chars().take(max_length).collect();
+    }
     if input.chars().count() > max_length {
         let truncated: String = input.chars().take(max_length.saturating_sub(1)).collect();
         format!("{}…", truncated)
@@ -1280,7 +1283,13 @@ fn load_pending_favicons(
 
 #[cfg(test)]
 mod saved_pages_tests {
-    use super::ArgonSettings;
+    use super::{ArgonSettings, truncate_with_ellipsis};
+    #[test]
+    fn compact_labels_keep_a_real_character() {
+        assert_eq!(truncate_with_ellipsis("Argon JS OK", 1), "A");
+        assert_eq!(truncate_with_ellipsis("网页", 1), "网");
+        assert_eq!(truncate_with_ellipsis("Argon", 0), "");
+    }
     #[test]
     fn saved_page_toggle_is_explicit_and_deduplicates() {
         let mut settings=ArgonSettings::default();

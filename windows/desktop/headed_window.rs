@@ -646,7 +646,11 @@ impl HeadedWindow {
                 } else {
                     // TODO how do we handle the tab key? (see doc for consumed)
                     // Note that servo doesn’t yet support tabbing through links and inputs
-                    consumed = response.consumed;
+                    // Secondary chrome clicks still belong to egui even when its
+                    // response is unconsumed; never open the page menu over them.
+                    consumed = response.consumed ||
+                        (matches!(event, WindowEvent::MouseInput { .. }) &&
+                         should_forward_mouse_event_to_egui());
                 }
             },
         }
